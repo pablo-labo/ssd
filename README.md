@@ -31,9 +31,9 @@ As a result, SSD achieves up to 2x faster inference than some of the strongest i
 </div>
 
 SSD is a new type of speculative decoding (SD). In normal SD, a small and fast model guesses the next few tokens that a larger slower model may generate, 
-and the large model then verifies them in one forward pass: drafting and verification happen one after the other. 
+and the large model then verifies them in one forward pass: drafting and verification happen one after the other on _the same harware._
 
-In SSD, they happen in parallel. The small model _anticipates_ likely verification outcomes in advance, and speculates for _all of them_ at once. If it guessed correctly, 
+In SSD, they happen in _parallel_, on _distinct hardware_. The small model _anticipates_ likely verification outcomes in advance, and speculates for _all of them_ at once. If it guessed correctly, 
 the speculation can be returned immediately so drafting overhead is eliminated entirely. 
 
 ## Setup
