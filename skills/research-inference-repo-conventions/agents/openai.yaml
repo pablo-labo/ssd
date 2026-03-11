@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Inference Conventions"
+  short_description: "Reuse SSD-style research repo structure and workflows"
+  default_prompt: "Use $research-inference-repo-conventions to analyze or build a research inference codebase using SSD-style architecture, CLI conventions, and benchmarking patterns."
