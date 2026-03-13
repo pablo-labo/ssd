@@ -78,6 +78,7 @@ def _get_draft_model_path(args, cache_dir: str) -> str:
     else:
         draft_size_to_model = {
             "0.6": "Qwen3-0.6B",
+            "1.7": "Qwen3-1.7B",
             "1": "Llama-3.2-1B-Instruct",
         }
         if args.draft not in draft_size_to_model:
