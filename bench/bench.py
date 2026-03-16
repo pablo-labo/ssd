@@ -70,6 +70,8 @@ def parse_arguments():
     parser.add_argument("--wandb", action="store_true", help="Log metrics to wandb")
     parser.add_argument("--group", type=str, default=None, help="Wandb group name")
     parser.add_argument("--name", type=str, default=None, help="Wandb run name")
+    parser.add_argument("--summary-json", type=str, default=None,
+                        help="Optional path to write a JSON summary for this run")
 
     # Sweep mode: load engine once, run multiple configs
     parser.add_argument("--sweep", type=str, default=None,
@@ -252,6 +254,80 @@ def log_wandb_metrics(args, metrics, total_tokens, total_time, throughput, model
     wandb.log(wandb_metrics)
 
 
+def _avg_metric(metrics, key, scale: float = 1.0):
+    values = metrics.get(key)
+    if not values:
+        return None
+    return sum(values) * scale / len(values)
+
+
+def build_summary(args, metrics, total_tokens, total_time, throughput, model_name, mode, run_name):
+    summary = {
+        "run_name": run_name,
+        "model_name": model_name,
+        "mode": mode,
+        "gpus": args.gpus,
+        "speculative_decoding": args.spec,
+        "async_speculative": getattr(args, "async", False),
+        "k": args.k if args.spec else None,
+        "f": args.f if getattr(args, "async", False) else None,
+        "draft_model": args.draft,
+        "numseqs": args.numseqs,
+        "output_len": args.output_len,
+        "random_mode": args.random,
+        "official_total_tokens": total_tokens,
+        "official_total_time": total_time,
+        "official_end_to_end_throughput": throughput,
+    }
+
+    if metrics:
+        if metrics.get("prefill_total_time", 0) > 0 and metrics.get("prefill_total_tokens") is not None:
+            summary["metrics_prefill_throughput"] = metrics["prefill_total_tokens"] / metrics["prefill_total_time"]
+        if metrics.get("decode_total_time", 0) > 0 and metrics.get("decode_total_tokens") is not None:
+            summary["metrics_decode_throughput"] = metrics["decode_total_tokens"] / metrics["decode_total_time"]
+
+        for key in (
+            "prefill_total_time",
+            "decode_total_time",
+            "prefill_total_tokens",
+            "decode_total_tokens",
+        ):
+            if key in metrics:
+                summary[f"metrics_{key}"] = metrics[key]
+
+        avg_target_step = _avg_metric(metrics, "target_step_times", scale=1000.0)
+        if avg_target_step is not None:
+            summary["metrics_avg_target_step_time_ms"] = avg_target_step
+
+        avg_target_verify = _avg_metric(metrics, "target_verify_times", scale=1000.0)
+        if avg_target_verify is not None:
+            summary["metrics_avg_target_verify_time_ms"] = avg_target_verify
+
+        avg_cache_hits = _avg_metric(metrics, "cache_hits")
+        if avg_cache_hits is not None:
+            summary["metrics_avg_cache_hits"] = avg_cache_hits
+
+        avg_with_recovery = _avg_metric(metrics, "accepted_suffix_lens_with_recovery")
+        if avg_with_recovery is not None:
+            summary["metrics_avg_accepted_suffix_lens_with_recovery"] = avg_with_recovery
+
+        avg_on_hit = _avg_metric(metrics, "accepted_suffix_lens_on_hit")
+        if avg_on_hit is not None:
+            summary["metrics_avg_accepted_suffix_lens_on_hit"] = avg_on_hit
+
+        avg_on_miss = _avg_metric(metrics, "accepted_suffix_lens_on_miss")
+        if avg_on_miss is not None:
+            summary["metrics_avg_accepted_suffix_lens_on_miss"] = avg_on_miss
+
+    return summary
+
+
+def write_summary_json(path: str, summary: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(summary, f, indent=2, sort_keys=True)
+
+
 def run_benchmark(args, llm, prompts, sampling_params):
     """Run the actual benchmark and return results."""
     if args.wandb:
@@ -384,6 +460,7 @@ def main():
             jit_mode = " + JIT" if args.backup == "jit" else ""
             x_mode = f" + X({args.x})" if args.x else ""
             full_mode = mode + spec_mode + async_mode + jit_mode + x_mode
+            summary = build_summary(args, metrics, total_tokens, total_time, throughput, model_name, full_mode, cur_run_name)
 
             print(f"Model: {model_name}, Mode: {full_mode}, Total: {total_tokens}tok, Time: {total_time:.2f}s, Total Throughput: {throughput:.2f}tok/s")
 
@@ -410,6 +487,14 @@ def main():
                     print("-" * 40)
 
             log_wandb_metrics(args, metrics, total_tokens, total_time, throughput, model_name, full_mode, cur_run_name)
+
+            if args.summary_json:
+                summary_path = args.summary_json
+                if args.sweep and len(sweep_configs) > 1:
+                    root, ext = os.path.splitext(args.summary_json)
+                    suffix = run_name_override if run_name_override else f"sweep{si}"
+                    summary_path = f"{root}_{suffix}{ext or '.json'}"
+                write_summary_json(summary_path, summary)
 
             if args.wandb:
                 wandb.finish()
