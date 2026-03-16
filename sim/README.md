@@ -167,12 +167,16 @@ Use one model family and one workload family first.
 
 Recommended first pass:
 
+- remote hardware:
+  - `NVIDIA RTX A4500`;
 - one target model family:
-  - `llama` or `qwen`, but not both initially;
+  - `qwen`;
+- one target model:
+  - `Qwen3-8B`;
 - one draft setup:
-  - default draft for that model family;
+  - `Qwen3-0.6B`;
 - one dataset family:
-  - `gsm` or `alpaca` first;
+  - `gsm` first;
 - fixed temperature:
   - `temp=0` first to reduce variance;
 - sweep only a few speculative shapes:
@@ -187,13 +191,14 @@ Run from `bench/` after normal SSD setup.
 Examples:
 
 ```bash
-python -O bench.py --llama --size 70 --spec --async --k 4 --f 2 --b 1 --temp 0 --numseqs 32 --output_len 128
-python -O bench.py --llama --size 70 --spec --async --k 6 --f 3 --b 1 --temp 0 --numseqs 32 --output_len 128
-python -O bench.py --llama --size 70 --spec --async --k 8 --f 4 --b 1 --temp 0 --numseqs 32 --output_len 128
+python -O bench.py --qwen --size 8 --spec --async --draft 0.6 --k 4 --f 2 --b 1 --temp 0 --numseqs 32 --output_len 128
+python -O bench.py --qwen --size 8 --spec --async --draft 0.6 --k 6 --f 3 --b 1 --temp 0 --numseqs 32 --output_len 128
+python -O bench.py --qwen --size 8 --spec --async --draft 0.6 --k 8 --f 4 --b 1 --temp 0 --numseqs 32 --output_len 128
 ```
 
-If hardware is limited, reduce model size and output length first. The goal of
-this stage is data collection, not leaderboard benchmarking.
+These commands match the current plan: `RTX A4500`, `Qwen3-8B` target,
+`Qwen3-0.6B` draft, and a small `gsm`-style first-pass collection sweep. The
+goal of this stage is data collection, not leaderboard benchmarking.
 
 ### 5. Mapping Real SSD Metrics Back To The Simulator
 

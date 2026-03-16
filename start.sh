@@ -38,7 +38,7 @@ import os
 cache_dir = os.environ["SSD_HF_CACHE"]
 models = [
     "Qwen/Qwen3-8B",
-    "Qwen/Qwen3-1.7B",
+    "Qwen/Qwen3-0.6B",
 ]
 
 for repo_id in models:
@@ -56,5 +56,5 @@ Setup complete.
 SSD_HF_CACHE=$SSD_HF_CACHE
 Downloaded models:
   - Qwen/Qwen3-8B
-  - Qwen/Qwen3-1.7B
+  - Qwen/Qwen3-0.6B
 EOF

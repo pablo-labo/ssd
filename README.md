@@ -77,7 +77,17 @@ python scripts/get_data_from_hf.py --num-samples 10000
 
 ## Usage
 
-All commands below run from inside the `bench/` directory. Large models (Llama-3 70B, Qwen-3 32B) take a few minutes for load/warmup/compile before generation starts. Always use `python -O` to disable debug overhead.
+All commands below run from inside the `bench/` directory. Always use `python -O` to disable debug overhead.
+
+### Recommended Real-LLM Sampling Setup
+
+For the current remote setup, use:
+
+- GPU: `NVIDIA RTX A4500`
+- target model: `Qwen/Qwen3-8B`
+- draft model: `Qwen/Qwen3-0.6B`
+
+This is the recommended first real-LLM sampling configuration for calibrating the simulator. On A4500, prefer a small async SSD sweep with fixed decoding settings before attempting larger grids.
 
 ### Benchmarks
 
@@ -87,17 +97,19 @@ gives an overall picture. `--numseqs` is per-dataset, so `--numseqs 128 --all` r
 ```bash
 cd bench
 
-# AR — Llama 70B, 4 GPUs
-python -O bench.py --llama --size 70 --gpus 4 --b 1 --temp 0 --numseqs 128 --output_len 512 --all
+# AR — Qwen3-8B on the current A4500 setup
+python -O bench.py --qwen --size 8 --b 1 --temp 0 --numseqs 32 --output_len 128
 
-# Sync spec decode — 70B target + 1B draft, 4 GPUs, k=6
-python -O bench.py --llama --size 70 --gpus 4 --spec --k 6 --b 1 --temp 0 --numseqs 128 --output_len 512 --all
+# Sync spec decode — Qwen3-8B target + Qwen3-0.6B draft
+python -O bench.py --qwen --size 8 --spec --draft 0.6 --k 6 --b 1 --temp 0 --numseqs 32 --output_len 128
 
-# Async spec decode (SSD) — 70B target (4 GPUs) + 1B draft (1 GPU), k=7, f=3
-python -O bench.py --llama --size 70 --gpus 5 --spec --async --k 7 --f 3 --b 1 --temp 0 --numseqs 128 --output_len 512 --all
+# Async spec decode (SSD) — recommended first-pass sweep on A4500
+python -O bench.py --qwen --size 8 --spec --async --draft 0.6 --k 4 --f 2 --b 1 --temp 0 --numseqs 32 --output_len 128
+python -O bench.py --qwen --size 8 --spec --async --draft 0.6 --k 6 --f 3 --b 1 --temp 0 --numseqs 32 --output_len 128
+python -O bench.py --qwen --size 8 --spec --async --draft 0.6 --k 8 --f 4 --b 1 --temp 0 --numseqs 32 --output_len 128
 ```
 
-Use `--qwen --size 32` for Qwen models. See `bench/bench.py` for full args. For SGLang/vLLM baselines, see `bench/README.md`.
+The examples above match the current remote plan: `Qwen3-8B` target, `Qwen3-0.6B` draft, default `gsm` prompts, and `temp=0`. See `bench/bench.py` for full args. For SGLang/vLLM baselines, see `bench/README.md`.
 
 ### Chat
 

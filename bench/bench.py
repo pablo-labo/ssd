@@ -207,12 +207,35 @@ def log_wandb_metrics(args, metrics, total_tokens, total_time, throughput, model
             if metrics["decode_total_time"] > 0:
                 wandb_metrics["metrics_decode_throughput"] = metrics["decode_total_tokens"] / metrics["decode_total_time"]
 
+        if "prefill_total_time" in metrics:
+            wandb_metrics["metrics_prefill_total_time"] = metrics["prefill_total_time"]
+
+        if "decode_total_time" in metrics:
+            wandb_metrics["metrics_decode_total_time"] = metrics["decode_total_time"]
+
+        if "prefill_total_tokens" in metrics:
+            wandb_metrics["metrics_prefill_total_tokens"] = metrics["prefill_total_tokens"]
+
+        if "decode_total_tokens" in metrics:
+            wandb_metrics["metrics_decode_total_tokens"] = metrics["decode_total_tokens"]
+
         if "target_step_times" in metrics and metrics["target_step_times"]:
             avg_target_step_time_ms = sum(metrics["target_step_times"]) * 1000 / len(metrics["target_step_times"])
             wandb_metrics["metrics_avg_target_step_time_ms"] = avg_target_step_time_ms
+            wandb_metrics["metrics_target_step_times_histogram"] = wandb.Histogram(
+                [value * 1000 for value in metrics["target_step_times"]]
+            )
+
+        if "target_verify_times" in metrics and metrics["target_verify_times"]:
+            avg_target_verify_time_ms = sum(metrics["target_verify_times"]) * 1000 / len(metrics["target_verify_times"])
+            wandb_metrics["metrics_avg_target_verify_time_ms"] = avg_target_verify_time_ms
+            wandb_metrics["metrics_target_verify_times_histogram"] = wandb.Histogram(
+                [value * 1000 for value in metrics["target_verify_times"]]
+            )
 
         if "cache_hits" in metrics and metrics["cache_hits"]:
             wandb_metrics["metrics_avg_cache_hits"] = sum(metrics["cache_hits"]) / len(metrics["cache_hits"])
+            wandb_metrics["metrics_cache_hits_histogram"] = wandb.Histogram(metrics["cache_hits"])
 
         if "accepted_suffix_lens_with_recovery" in metrics and metrics["accepted_suffix_lens_with_recovery"]:
             wandb_metrics["metrics_avg_accepted_suffix_lens_with_recovery"] = sum(metrics["accepted_suffix_lens_with_recovery"]) / len(metrics["accepted_suffix_lens_with_recovery"])
@@ -221,6 +244,10 @@ def log_wandb_metrics(args, metrics, total_tokens, total_time, throughput, model
         if "accepted_suffix_lens_on_hit" in metrics and metrics["accepted_suffix_lens_on_hit"]:
             wandb_metrics["metrics_avg_accepted_suffix_lens_on_hit"] = sum(metrics["accepted_suffix_lens_on_hit"]) / len(metrics["accepted_suffix_lens_on_hit"])
             wandb_metrics["metrics_accepted_suffix_lens_on_hit_histogram"] = wandb.Histogram(metrics["accepted_suffix_lens_on_hit"])
+
+        if "accepted_suffix_lens_on_miss" in metrics and metrics["accepted_suffix_lens_on_miss"]:
+            wandb_metrics["metrics_avg_accepted_suffix_lens_on_miss"] = sum(metrics["accepted_suffix_lens_on_miss"]) / len(metrics["accepted_suffix_lens_on_miss"])
+            wandb_metrics["metrics_accepted_suffix_lens_on_miss_histogram"] = wandb.Histogram(metrics["accepted_suffix_lens_on_miss"])
 
     wandb.log(wandb_metrics)
 

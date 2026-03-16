@@ -33,6 +33,8 @@ After logging in to the server, confirm all of the following:
 6. target and draft model snapshots exist in the HF cache.
 7. enough GPUs are available for the chosen mode.
 8. CUDA version is compatible with the project.
+9. the machine profile matches the planned first-pass collection setup:
+   `NVIDIA RTX A4500` with `Qwen3-8B` target and `Qwen3-0.6B` draft.
 
 Suggested checks:
 
@@ -61,7 +63,7 @@ If the server shell does not already export these, set them explicitly:
 ```bash
 export SSD_HF_CACHE=/path/to/huggingface/hub
 export SSD_DATASET_DIR=/path/to/processed_datasets
-export SSD_CUDA_ARCH=9.0
+export SSD_CUDA_ARCH=8.6
 ```
 
 Notes:
@@ -70,7 +72,7 @@ Notes:
   entries like `models--meta-llama--...`.
 - `SSD_DATASET_DIR` must point to the processed dataset directory containing
   folders such as `gsm8k/`, `alpaca/`, and `humaneval/`.
-- `SSD_CUDA_ARCH=9.0` is appropriate for H100; adjust for the actual server GPU.
+- `SSD_CUDA_ARCH=8.6` is appropriate for RTX A4500.
 
 ## Step 2: Choose a Minimal Real Collection Matrix
 
@@ -78,13 +80,16 @@ Do not start with many models or many datasets.
 
 Use one model family, one dataset family, and a small speculative sweep.
 
-Recommended first pass:
+Recommended first pass for the current remote setup:
 
+- GPU:
+  - `NVIDIA RTX A4500`
 - model family:
-  - `llama`
-- size:
-  - use the smallest feasible size that still exercises SSD mechanics on the
-    available remote hardware
+  - `qwen`
+- target:
+  - `Qwen3-8B`
+- draft:
+  - `Qwen3-0.6B`
 - dataset:
   - `gsm` first
 - generation:
@@ -97,8 +102,8 @@ Recommended first pass:
 If hardware is tight, reduce `numseqs` and `output_len` before changing the
 logic of the collection pass.
 
-For a first server pass, it is acceptable to start with a smaller target model
-than 70B if that gets you to clean metrics faster.
+This setup is intentionally conservative. The first goal is clean real SSD
+metrics on the available A4500 machine, not large-model benchmarking.
 
 ## Step 3: Record a Fixed Metrics Table
 
@@ -134,25 +139,23 @@ Run from `bench/`.
 Template:
 
 ```bash
-python -O bench.py --llama --size 70 --spec --async --k K --f F --b 1 --temp 0 --numseqs 32 --output_len 128
+python -O bench.py --qwen --size 8 --spec --async --draft 0.6 --k K --f F --b 1 --temp 0 --numseqs 32 --output_len 128
 ```
 
 First three runs:
 
 ```bash
-python -O bench.py --llama --size 70 --spec --async --k 4 --f 2 --b 1 --temp 0 --numseqs 32 --output_len 128
-python -O bench.py --llama --size 70 --spec --async --k 6 --f 3 --b 1 --temp 0 --numseqs 32 --output_len 128
-python -O bench.py --llama --size 70 --spec --async --k 8 --f 4 --b 1 --temp 0 --numseqs 32 --output_len 128
+python -O bench.py --qwen --size 8 --spec --async --draft 0.6 --k 4 --f 2 --b 1 --temp 0 --numseqs 32 --output_len 128
+python -O bench.py --qwen --size 8 --spec --async --draft 0.6 --k 6 --f 3 --b 1 --temp 0 --numseqs 32 --output_len 128
+python -O bench.py --qwen --size 8 --spec --async --draft 0.6 --k 8 --f 4 --b 1 --temp 0 --numseqs 32 --output_len 128
 ```
-
-If 70B is not feasible on the server, substitute a smaller supported target
-model and keep the same collection logic.
 
 Recommended execution practice:
 
 - keep a text log for each run;
 - copy the exact command line into the log;
-- record the server GPU type and count once at the top of the log;
+- record the server GPU type and count once at the top of the log
+  (`RTX A4500` for the current setup);
 - do not start with `--wandb`; plain terminal output is enough for the first
   pass.
 
