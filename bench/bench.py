@@ -72,6 +72,8 @@ def parse_arguments():
     parser.add_argument("--name", type=str, default=None, help="Wandb run name")
     parser.add_argument("--summary-json", type=str, default=None,
                         help="Optional path to write a JSON summary for this run")
+    parser.add_argument("--calibration-json", type=str, default=None,
+                        help="Optional path to write a richer JSON record with raw SSD calibration metrics")
 
     # Sweep mode: load engine once, run multiple configs
     parser.add_argument("--sweep", type=str, default=None,
@@ -261,17 +263,82 @@ def _avg_metric(metrics, key, scale: float = 1.0):
     return sum(values) * scale / len(values)
 
 
+def _dataset_label(args):
+    if args.example:
+        return "example"
+    if args.random:
+        return "random"
+    if args.all:
+        return "all"
+    if args.humaneval:
+        return "humaneval"
+    if args.alpaca:
+        return "alpaca"
+    if args.c4:
+        return "c4"
+    if args.ultrafeedback:
+        return "ultrafeedback"
+    return "gsm"
+
+
+def _percentile(sorted_values, q: float):
+    if not sorted_values:
+        return None
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    pos = (len(sorted_values) - 1) * q
+    lo = int(pos)
+    hi = min(lo + 1, len(sorted_values) - 1)
+    frac = pos - lo
+    return sorted_values[lo] * (1.0 - frac) + sorted_values[hi] * frac
+
+
+def _list_stats(values, scale: float = 1.0):
+    if not values:
+        return None
+    scaled = [float(value) * scale for value in values]
+    ordered = sorted(scaled)
+    return {
+        "count": len(scaled),
+        "sum": sum(scaled),
+        "mean": sum(scaled) / len(scaled),
+        "min": ordered[0],
+        "p50": _percentile(ordered, 0.50),
+        "p90": _percentile(ordered, 0.90),
+        "p95": _percentile(ordered, 0.95),
+        "p99": _percentile(ordered, 0.99),
+        "max": ordered[-1],
+    }
+
+
+def _jsonable_metrics(metrics):
+    jsonable = {}
+    for key, value in metrics.items():
+        if isinstance(value, list):
+            jsonable[key] = [float(item) for item in value]
+        else:
+            jsonable[key] = float(value)
+    return jsonable
+
+
 def build_summary(args, metrics, total_tokens, total_time, throughput, model_name, mode, run_name):
     summary = {
         "run_name": run_name,
         "model_name": model_name,
         "mode": mode,
+        "dataset": _dataset_label(args),
         "gpus": args.gpus,
         "speculative_decoding": args.spec,
         "async_speculative": getattr(args, "async", False),
         "k": args.k if args.spec else None,
         "f": args.f if getattr(args, "async", False) else None,
+        "fan_out_list_hit": args.flh,
+        "fan_out_list_miss": args.flm,
         "draft_model": args.draft,
+        "batch_size": args.b,
+        "temperature": args.temp,
+        "draft_temperature": args.dtemp,
+        "input_len": args.input_len,
         "numseqs": args.numseqs,
         "output_len": args.output_len,
         "random_mode": args.random,
@@ -319,11 +386,54 @@ def build_summary(args, metrics, total_tokens, total_time, throughput, model_nam
         if avg_on_miss is not None:
             summary["metrics_avg_accepted_suffix_lens_on_miss"] = avg_on_miss
 
+        target_verify_total = sum(metrics.get("target_verify_times", []))
+        if target_verify_total > 0:
+            summary["metrics_target_verify_total_time"] = target_verify_total
+            summary["metrics_decode_tokens_per_target_verify_second"] = (
+                metrics.get("decode_total_tokens", 0) / target_verify_total
+            )
+            suffix_total = sum(metrics.get("accepted_suffix_lens_with_recovery", []))
+            summary["metrics_accepted_suffix_tokens_per_target_verify_second"] = (
+                suffix_total / target_verify_total
+            )
+
+        if metrics.get("accepted_suffix_lens_with_recovery"):
+            suffix_lens = metrics["accepted_suffix_lens_with_recovery"]
+            summary["metrics_spec_steps"] = len(suffix_lens)
+            summary["metrics_total_accepted_suffix_lens_with_recovery"] = sum(suffix_lens)
+
     return summary
 
 
+def build_calibration_record(args, metrics, total_tokens, total_time, throughput, model_name, mode, run_name):
+    record = build_summary(args, metrics, total_tokens, total_time, throughput, model_name, mode, run_name)
+    record["calibration_schema_version"] = 1
+    record["shape"] = {
+        "mode": "async_ssd" if args.spec and getattr(args, "async", False) else ("sync_sd" if args.spec else "ar"),
+        "k": args.k if args.spec else None,
+        "f": args.f if getattr(args, "async", False) else None,
+        "fan_out_list_hit": args.flh,
+        "fan_out_list_miss": args.flm,
+        "backup": args.backup if args.spec else None,
+    }
+
+    record["metric_stats"] = {
+        "target_step_times_ms": _list_stats(metrics.get("target_step_times", []), scale=1000.0),
+        "target_verify_times_ms": _list_stats(metrics.get("target_verify_times", []), scale=1000.0),
+        "cache_hits": _list_stats(metrics.get("cache_hits", [])),
+        "accepted_suffix_lens_with_recovery": _list_stats(metrics.get("accepted_suffix_lens_with_recovery", [])),
+        "accepted_suffix_lens_on_hit": _list_stats(metrics.get("accepted_suffix_lens_on_hit", [])),
+        "accepted_suffix_lens_on_miss": _list_stats(metrics.get("accepted_suffix_lens_on_miss", [])),
+    }
+
+    record["raw_metrics"] = _jsonable_metrics(metrics)
+    return record
+
+
 def write_summary_json(path: str, summary: dict) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    dirname = os.path.dirname(path)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
     with open(path, "w") as f:
         json.dump(summary, f, indent=2, sort_keys=True)
 
@@ -495,6 +605,18 @@ def main():
                     suffix = run_name_override if run_name_override else f"sweep{si}"
                     summary_path = f"{root}_{suffix}{ext or '.json'}"
                 write_summary_json(summary_path, summary)
+
+            if args.calibration_json:
+                calibration_path = args.calibration_json
+                if args.sweep and len(sweep_configs) > 1:
+                    root, ext = os.path.splitext(args.calibration_json)
+                    suffix = run_name_override if run_name_override else f"sweep{si}"
+                    calibration_path = f"{root}_{suffix}{ext or '.json'}"
+                calibration_record = build_calibration_record(
+                    args, metrics, total_tokens, total_time, throughput,
+                    model_name, full_mode, cur_run_name,
+                )
+                write_summary_json(calibration_path, calibration_record)
 
             if args.wandb:
                 wandb.finish()
