@@ -147,6 +147,7 @@ def load_dataset_token_ids(
     num_prompts: int,
     input_len: int,
     use_chat_template: bool = False,
+    prompt_offset: int = 0,
 ) -> Optional[List[List[int]]]:
     """Load and tokenize dataset prompts to token ids, padding/truncating to target length.
 
@@ -167,7 +168,9 @@ def load_dataset_token_ids(
         tokenizer = AutoTokenizer.from_pretrained(model_path)
         prompts: List[List[int]] = []
         with open(dataset_file_path, "r") as f:
-            for _, line in enumerate(f):
+            for line_idx, line in enumerate(f):
+                if line_idx < prompt_offset:
+                    continue
                 if len(prompts) >= num_prompts:
                     break
                 data = json.loads(line.strip())
@@ -199,6 +202,7 @@ def load_all_dataset_token_ids(
     num_prompts_per_dataset: int,
     input_len: int,
     use_chat_template: bool = False,
+    prompt_offset: int = 0,
 ) -> List[List[int]]:
     """Load tokenized prompts from a union of datasets, falling back to random when needed."""
     datasets = ["humaneval", "alpaca", "gsm", "ultrafeedback"]
@@ -209,7 +213,8 @@ def load_all_dataset_token_ids(
             f"Loading {num_prompts_per_dataset} prompts from {dataset_name}...")
         dataset_prompts = load_dataset_token_ids(
             dataset_name, model_path, num_prompts_per_dataset, input_len,
-            use_chat_template=use_chat_template)
+            use_chat_template=use_chat_template,
+            prompt_offset=prompt_offset)
         if dataset_prompts is not None:
             all_prompts.extend(dataset_prompts)
         else:
@@ -262,7 +267,8 @@ def generate_benchmark_inputs(
     if getattr(args, "all", False):
         token_ids = load_all_dataset_token_ids(
             model_path, args.numseqs, args.input_len,
-            use_chat_template=use_chat_template)
+            use_chat_template=use_chat_template,
+            prompt_offset=getattr(args, "prompt_offset", 0))
         if not token_ids:
             print("Warning: All dataset loading failed, falling back to random tokens")
             token_ids = [[randint(0, 10000) for _ in range(
@@ -283,7 +289,8 @@ def generate_benchmark_inputs(
 
     dataset_prompts = load_dataset_token_ids(
         dataset_name, model_path, args.numseqs, args.input_len,
-        use_chat_template=use_chat_template)
+        use_chat_template=use_chat_template,
+        prompt_offset=getattr(args, "prompt_offset", 0))
     if dataset_prompts is None:
         token_ids = [[randint(0, 10000) for _ in range(args.input_len)]
                      for _ in range(args.numseqs)]
