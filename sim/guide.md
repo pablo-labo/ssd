@@ -136,6 +136,42 @@ python -O bench.py \
   --spec \
   --async \
   --draft 0.6 \
+  --k 4 \
+  --f 3 \
+  --b 1 \
+  --temp 0 \
+  --numseqs 32 \
+  --output_len 128 \
+  --random \
+  --wandb \
+  --group qwen8b-2xa4500-random \
+  --name qwen8b_async_k4_f3_draft06_random_b1_n32_o128
+
+python -O bench.py \
+  --qwen \
+  --size 8 \
+  --gpus 2 \
+  --spec \
+  --async \
+  --draft 0.6 \
+  --k 6 \
+  --f 2 \
+  --b 1 \
+  --temp 0 \
+  --numseqs 32 \
+  --output_len 128 \
+  --random \
+  --wandb \
+  --group qwen8b-2xa4500-random \
+  --name qwen8b_async_k6_f2_draft06_random_b1_n32_o128
+
+python -O bench.py \
+  --qwen \
+  --size 8 \
+  --gpus 2 \
+  --spec \
+  --async \
+  --draft 0.6 \
   --k 6 \
   --f 3 \
   --b 1 \
@@ -146,6 +182,42 @@ python -O bench.py \
   --wandb \
   --group qwen8b-2xa4500-random \
   --name qwen8b_async_k6_f3_draft06_random_b1_n32_o128
+
+python -O bench.py \
+  --qwen \
+  --size 8 \
+  --gpus 2 \
+  --spec \
+  --async \
+  --draft 0.6 \
+  --k 6 \
+  --f 4 \
+  --b 1 \
+  --temp 0 \
+  --numseqs 32 \
+  --output_len 128 \
+  --random \
+  --wandb \
+  --group qwen8b-2xa4500-random \
+  --name qwen8b_async_k6_f4_draft06_random_b1_n32_o128
+
+python -O bench.py \
+  --qwen \
+  --size 8 \
+  --gpus 2 \
+  --spec \
+  --async \
+  --draft 0.6 \
+  --k 8 \
+  --f 3 \
+  --b 1 \
+  --temp 0 \
+  --numseqs 32 \
+  --output_len 128 \
+  --random \
+  --wandb \
+  --group qwen8b-2xa4500-random \
+  --name qwen8b_async_k8_f3_draft06_random_b1_n32_o128
 
 python -O bench.py \
   --qwen \
@@ -174,8 +246,47 @@ Run in this order:
 2. AR baseline
 3. sync speculative baseline
 4. async `k=4, f=2`
-5. async `k=6, f=3`
-6. async `k=8, f=4`
+5. async `k=4, f=3`
+6. async `k=6, f=2`
+7. async `k=6, f=3`
+8. async `k=6, f=4`
+9. async `k=8, f=3`
+10. async `k=8, f=4`
+
+## Repeated Runs
+
+To reduce randomness, run each configuration `3` times and average the results.
+
+Use the batch runner:
+
+```bash
+cd /workspace/ssd
+source .venv/bin/activate
+
+export HF_HOME=/workspace/ssd/models/huggingface
+export SSD_HF_CACHE=/workspace/ssd/models/huggingface/hub
+export SSD_CUDA_ARCH=8.6
+export SSD_DATASET_DIR=/workspace/ssd/processed_datasets
+
+python -m sim.experiments.repeat_bench --repeats 3 --with-wandb
+```
+
+This writes:
+
+- `sim/experiments/results/repeat_runs/per_run_results.csv`
+- `sim/experiments/results/repeat_runs/aggregate_results.csv`
+
+The default repeated matrix currently includes:
+
+- `ar`
+- `sync_k6`
+- `async_k4_f2`
+- `async_k4_f3`
+- `async_k6_f2`
+- `async_k6_f3`
+- `async_k6_f4`
+- `async_k8_f3`
+- `async_k8_f4`
 
 ## WandB Metrics To Check
 
