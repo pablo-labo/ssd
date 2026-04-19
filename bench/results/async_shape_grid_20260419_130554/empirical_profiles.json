@@ -1,0 +1,193 @@
+{
+  "profiles": [
+    {
+      "dataset": "gsm",
+      "f": 1,
+      "k": 4,
+      "metrics": {
+        "accepted_suffix_mean": 2.901098901098901,
+        "accepted_suffix_per_verify_sec_mean": 44.85840562506468,
+        "accepted_suffix_per_verify_sec_std": 0.1355272313710556,
+        "accepted_suffix_std": 0.0,
+        "cache_hit_rate_mean": 0.5824175824175825,
+        "cache_hit_rate_std": 0.0,
+        "decode_tokens_per_verify_sec_mean": 44.85840562506468,
+        "decode_tokens_per_verify_sec_std": 0.1355272313710556,
+        "target_verify_time_ms_mean": 64.67275296238971,
+        "target_verify_time_ms_std": 0.19572647831225903
+      },
+      "model_name": "Qwen3-8B",
+      "runs": 3,
+      "shape_mode": "async_ssd",
+      "total_spec_steps": 273
+    },
+    {
+      "dataset": "gsm",
+      "f": 2,
+      "k": 4,
+      "metrics": {
+        "accepted_suffix_mean": 2.901098901098901,
+        "accepted_suffix_per_verify_sec_mean": 44.945831409662055,
+        "accepted_suffix_per_verify_sec_std": 0.01813611665243102,
+        "accepted_suffix_std": 0.0,
+        "cache_hit_rate_mean": 0.6703296703296703,
+        "cache_hit_rate_std": 0.0,
+        "decode_tokens_per_verify_sec_mean": 44.945831409662055,
+        "decode_tokens_per_verify_sec_std": 0.01813611665243102,
+        "target_verify_time_ms_mean": 64.54656917035526,
+        "target_verify_time_ms_std": 0.02604504516852036
+      },
+      "model_name": "Qwen3-8B",
+      "runs": 3,
+      "shape_mode": "async_ssd",
+      "total_spec_steps": 273
+    },
+    {
+      "dataset": "gsm",
+      "f": 4,
+      "k": 4,
+      "metrics": {
+        "accepted_suffix_mean": 2.869565217391304,
+        "accepted_suffix_per_verify_sec_mean": 44.326745830307914,
+        "accepted_suffix_per_verify_sec_std": 0.03356910532779546,
+        "accepted_suffix_std": 0.0,
+        "cache_hit_rate_mean": 0.7608695652173912,
+        "cache_hit_rate_std": 0.0,
+        "decode_tokens_per_verify_sec_mean": 44.326745830307914,
+        "decode_tokens_per_verify_sec_std": 0.03356910532779546,
+        "target_verify_time_ms_mean": 64.73667895846556,
+        "target_verify_time_ms_std": 0.049004829046454056
+      },
+      "model_name": "Qwen3-8B",
+      "runs": 3,
+      "shape_mode": "async_ssd",
+      "total_spec_steps": 276
+    },
+    {
+      "dataset": "gsm",
+      "f": 1,
+      "k": 6,
+      "metrics": {
+        "accepted_suffix_mean": 3.3048780487804876,
+        "accepted_suffix_per_verify_sec_mean": 51.074227223531786,
+        "accepted_suffix_per_verify_sec_std": 0.025648160555005003,
+        "accepted_suffix_std": 0.0,
+        "cache_hit_rate_mean": 0.5487804878048781,
+        "cache_hit_rate_std": 0.0,
+        "decode_tokens_per_verify_sec_mean": 51.074227223531786,
+        "decode_tokens_per_verify_sec_std": 0.025648160555005003,
+        "target_verify_time_ms_mean": 64.70736385345822,
+        "target_verify_time_ms_std": 0.03249980439379765
+      },
+      "model_name": "Qwen3-8B",
+      "runs": 3,
+      "shape_mode": "async_ssd",
+      "total_spec_steps": 246
+    },
+    {
+      "dataset": "gsm",
+      "f": 2,
+      "k": 6,
+      "metrics": {
+        "accepted_suffix_mean": 3.280487804878048,
+        "accepted_suffix_per_verify_sec_mean": 50.63311736663561,
+        "accepted_suffix_per_verify_sec_std": 0.0951965853231215,
+        "accepted_suffix_std": 0.0,
+        "cache_hit_rate_mean": 0.6341463414634146,
+        "cache_hit_rate_std": 0.0,
+        "decode_tokens_per_verify_sec_mean": 50.63311736663561,
+        "decode_tokens_per_verify_sec_std": 0.0951965853231215,
+        "target_verify_time_ms_mean": 64.78952332134776,
+        "target_verify_time_ms_std": 0.12185706250327735
+      },
+      "model_name": "Qwen3-8B",
+      "runs": 3,
+      "shape_mode": "async_ssd",
+      "total_spec_steps": 246
+    },
+    {
+      "dataset": "gsm",
+      "f": 3,
+      "k": 6,
+      "metrics": {
+        "accepted_suffix_mean": 3.280487804878048,
+        "accepted_suffix_per_verify_sec_mean": 50.59777538525409,
+        "accepted_suffix_per_verify_sec_std": 0.07527085976686679,
+        "accepted_suffix_std": 0.0,
+        "cache_hit_rate_mean": 0.7317073170731708,
+        "cache_hit_rate_std": 0.0,
+        "decode_tokens_per_verify_sec_mean": 50.59777538525409,
+        "decode_tokens_per_verify_sec_std": 0.07527085976686679,
+        "target_verify_time_ms_mean": 64.8347208166601,
+        "target_verify_time_ms_std": 0.09637533001935077
+      },
+      "model_name": "Qwen3-8B",
+      "runs": 3,
+      "shape_mode": "async_ssd",
+      "total_spec_steps": 246
+    },
+    {
+      "dataset": "gsm",
+      "f": 1,
+      "k": 8,
+      "metrics": {
+        "accepted_suffix_mean": 3.52,
+        "accepted_suffix_per_verify_sec_mean": 54.13541565912336,
+        "accepted_suffix_per_verify_sec_std": 0.09944856833646033,
+        "accepted_suffix_std": 0.0,
+        "cache_hit_rate_mean": 0.5066666666666667,
+        "cache_hit_rate_std": 0.0,
+        "decode_tokens_per_verify_sec_mean": 54.13541565912336,
+        "decode_tokens_per_verify_sec_std": 0.09944856833646033,
+        "target_verify_time_ms_mean": 65.02227558857864,
+        "target_verify_time_ms_std": 0.11939981205098513
+      },
+      "model_name": "Qwen3-8B",
+      "runs": 3,
+      "shape_mode": "async_ssd",
+      "total_spec_steps": 225
+    },
+    {
+      "dataset": "gsm",
+      "f": 2,
+      "k": 8,
+      "metrics": {
+        "accepted_suffix_mean": 3.52,
+        "accepted_suffix_per_verify_sec_mean": 54.027156263745496,
+        "accepted_suffix_per_verify_sec_std": 0.05696270351416691,
+        "accepted_suffix_std": 0.0,
+        "cache_hit_rate_mean": 0.6,
+        "cache_hit_rate_std": 0.0,
+        "decode_tokens_per_verify_sec_mean": 54.027156263745496,
+        "decode_tokens_per_verify_sec_std": 0.05696270351416691,
+        "target_verify_time_ms_mean": 65.1524686999619,
+        "target_verify_time_ms_std": 0.06866129102213339
+      },
+      "model_name": "Qwen3-8B",
+      "runs": 3,
+      "shape_mode": "async_ssd",
+      "total_spec_steps": 225
+    },
+    {
+      "dataset": "gsm",
+      "f": 4,
+      "k": 8,
+      "metrics": {
+        "accepted_suffix_mean": 3.52,
+        "accepted_suffix_per_verify_sec_mean": 54.277346572120024,
+        "accepted_suffix_per_verify_sec_std": 0.018047442798965547,
+        "accepted_suffix_std": 0.0,
+        "cache_hit_rate_mean": 0.7066666666666667,
+        "cache_hit_rate_std": 0.0,
+        "decode_tokens_per_verify_sec_mean": 54.277346572120024,
+        "decode_tokens_per_verify_sec_std": 0.018047442798965547,
+        "target_verify_time_ms_mean": 64.85210648220446,
+        "target_verify_time_ms_std": 0.0215653804838249
+      },
+      "model_name": "Qwen3-8B",
+      "runs": 3,
+      "shape_mode": "async_ssd",
+      "total_spec_steps": 225
+    }
+  ]
+}

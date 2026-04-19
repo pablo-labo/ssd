@@ -1,0 +1,167 @@
+{
+  "async_speculative": true,
+  "batch_size": 1,
+  "calibration_schema_version": 1,
+  "dataset": "gsm",
+  "draft_model": "0.6",
+  "draft_temperature": null,
+  "f": 2,
+  "fan_out_list_hit": null,
+  "fan_out_list_miss": null,
+  "gpus": 2,
+  "input_len": 128,
+  "k": 4,
+  "metric_stats": {
+    "accepted_suffix_lens_on_hit": {
+      "count": 4,
+      "max": 4.0,
+      "mean": 2.75,
+      "min": 1.0,
+      "p50": 3.0,
+      "p90": 3.7,
+      "p95": 3.8499999999999996,
+      "p99": 3.9699999999999998,
+      "sum": 11.0
+    },
+    "accepted_suffix_lens_on_miss": {
+      "count": 2,
+      "max": 5.0,
+      "mean": 3.5,
+      "min": 2.0,
+      "p50": 3.5,
+      "p90": 4.7,
+      "p95": 4.85,
+      "p99": 4.970000000000001,
+      "sum": 7.0
+    },
+    "accepted_suffix_lens_with_recovery": {
+      "count": 6,
+      "max": 5.0,
+      "mean": 3.0,
+      "min": 1.0,
+      "p50": 3.0,
+      "p90": 4.5,
+      "p95": 4.75,
+      "p99": 4.95,
+      "sum": 18.0
+    },
+    "cache_hits": {
+      "count": 6,
+      "max": 1.0,
+      "mean": 0.6666666666666666,
+      "min": 0.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "p95": 1.0,
+      "p99": 1.0,
+      "sum": 4.0
+    },
+    "target_step_times_ms": {
+      "count": 7,
+      "max": 972.5130628794432,
+      "mean": 230.98229024825352,
+      "min": 68.16738471388817,
+      "p50": 71.18466915562749,
+      "p90": 552.9606156051161,
+      "p95": 762.7368392422791,
+      "p99": 930.5578181520101,
+      "sum": 1616.8760317377746
+    },
+    "target_verify_times_ms": {
+      "count": 6,
+      "max": 88.10558402910829,
+      "mean": 68.33812835005422,
+      "min": 64.10506973043084,
+      "p50": 64.311932772398,
+      "p90": 76.58729236572981,
+      "p95": 82.34643819741905,
+      "p99": 86.95375486277044,
+      "sum": 410.02877010032535
+    }
+  },
+  "metrics_accepted_suffix_tokens_per_target_verify_second": 43.89935856353636,
+  "metrics_avg_accepted_suffix_lens_on_hit": 2.75,
+  "metrics_avg_accepted_suffix_lens_on_miss": 3.5,
+  "metrics_avg_accepted_suffix_lens_with_recovery": 3.0,
+  "metrics_avg_cache_hits": 0.6666666666666666,
+  "metrics_avg_target_step_time_ms": 230.98229024825352,
+  "metrics_avg_target_verify_time_ms": 68.33812835005422,
+  "metrics_decode_throughput": 27.936499427601667,
+  "metrics_decode_tokens_per_target_verify_second": 43.89935856353636,
+  "metrics_decode_total_time": 0.6443183780647814,
+  "metrics_decode_total_tokens": 18,
+  "metrics_prefill_throughput": 131.6190442257582,
+  "metrics_prefill_total_time": 0.9725036430172622,
+  "metrics_prefill_total_tokens": 128,
+  "metrics_spec_steps": 6,
+  "metrics_target_verify_total_time": 0.41002877010032535,
+  "metrics_total_accepted_suffix_lens_with_recovery": 18,
+  "mode": "CUDA Graphs + Speculative(k=4) + Async + JIT",
+  "model_name": "Qwen3-8B",
+  "numseqs": 1,
+  "official_end_to_end_throughput": 9.88519283228163,
+  "official_total_time": 1.6185824871063232,
+  "official_total_tokens": 16,
+  "output_len": 16,
+  "random_mode": false,
+  "raw_metrics": {
+    "accepted_suffix_lens_on_hit": [
+      4.0,
+      1.0,
+      3.0,
+      3.0
+    ],
+    "accepted_suffix_lens_on_miss": [
+      2.0,
+      5.0
+    ],
+    "accepted_suffix_lens_with_recovery": [
+      2.0,
+      5.0,
+      4.0,
+      1.0,
+      3.0,
+      3.0
+    ],
+    "cache_hits": [
+      0.0,
+      0.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "decode_total_time": 0.6443183780647814,
+    "decode_total_tokens": 18.0,
+    "prefill_total_time": 0.9725036430172622,
+    "prefill_total_tokens": 128.0,
+    "target_step_times": [
+      0.9725130628794432,
+      0.2732589840888977,
+      0.09309791121631861,
+      0.07118466915562749,
+      0.06938519375398755,
+      0.06816738471388817,
+      0.06926882592961192
+    ],
+    "target_verify_times": [
+      0.08810558402910829,
+      0.06506900070235133,
+      0.06447939574718475,
+      0.06410506973043084,
+      0.0641252500936389,
+      0.06414446979761124
+    ]
+  },
+  "run_name": "qwen_size8_spec_async_jit_b1_k4_f2_draft0.6_temp0.0_gsm",
+  "shape": {
+    "backup": "jit",
+    "f": 2,
+    "fan_out_list_hit": null,
+    "fan_out_list_miss": null,
+    "k": 4,
+    "mode": "async_ssd"
+  },
+  "speculative_decoding": true,
+  "temperature": 0.0
+}
