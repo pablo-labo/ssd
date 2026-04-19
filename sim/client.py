@@ -1,6 +1,6 @@
 import math
 
-from sim.policy import linear_service, unified_service
+from sim.policy import empirical_service, linear_service, unified_service
 from sim.types import ClientConfig, ClientSnapshot
 
 
@@ -12,6 +12,7 @@ class SimClient:
         self.frontier_quality = config.frontier_quality
         self.frontier_state = config.frontier_quality
         self.expansion_policy = config.expansion_policy
+        self.empirical_f = config.empirical_f if config.empirical_f is not None else self._default_empirical_f()
         self.backlog = float(config.initial_backlog)
         self.freshness_age = 0
         self.total_accepted = 0.0
@@ -44,6 +45,15 @@ class SimClient:
                 self.frontier_state,
                 budget,
                 self.expansion_policy,
+            )
+        if mode == "empirical":
+            return empirical_service(
+                self.backlog,
+                self.base_acceptance,
+                self.frontier_quality,
+                self.frontier_state,
+                budget,
+                self.empirical_f,
             )
         raise ValueError(f"Unknown service mode: {mode}")
 
@@ -89,7 +99,7 @@ class SimClient:
         self.frontier_state = min(1.0, self.frontier_state + 0.06 + 0.04 * pressure)
 
     def _update_frontier_after_service(self, budget: int, accepted: float, world_mode: str) -> None:
-        if world_mode != "unified":
+        if world_mode not in ("unified", "empirical"):
             return
 
         if accepted <= 0:
@@ -104,3 +114,10 @@ class SimClient:
             1.0,
             max(0.05, self.frontier_state + exploration_gain - overuse_penalty),
         )
+
+    def _default_empirical_f(self) -> int:
+        if self.expansion_policy in ("depth_heavy", "mixed"):
+            return 1
+        if self.expansion_policy in ("width_heavy", "quality_aware"):
+            return 4
+        return 2

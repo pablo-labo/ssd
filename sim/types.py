@@ -9,6 +9,7 @@ class ClientConfig:
     frontier_quality: float
     expansion_policy: str
     initial_backlog: float = 0.0
+    empirical_f: int | None = None
 
 
 @dataclass

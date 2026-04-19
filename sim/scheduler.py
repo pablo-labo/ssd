@@ -65,3 +65,7 @@ class UnifiedBudgetScheduler(GreedyMarginalScheduler):
     name = "unified_budget"
     estimate_mode = "unified"
 
+
+class EmpiricalBudgetScheduler(GreedyMarginalScheduler):
+    name = "empirical_budget"
+    estimate_mode = "empirical"
