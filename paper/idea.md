@@ -1,423 +1,313 @@
-# 面向 SSD / Tree Speculation 的 Freshness-Aware Unified Speculative Budget Scheduling
+# 面向 SSD / Tree Speculation 的双层 Speculative Budget Scheduling
 
-## 1. 研究背景与问题来源
+## 1. 核心问题
 
-现有两类相关工作给了我们一个明确起点。
+现有 multi-client speculative decoding 调度通常把每个 client 获得的预算
+\(S_i\) 当成线性 speculative length：给更多 \(S_i\)，就等价于允许 client
+沿一条 draft chain 往前多走几个 token。这个抽象在普通 speculative decoding
+里基本合理，因为 client 内部动作几乎只有一个维度：draft 多长。
 
-第一类是 GoodSpeed 这一类工作。它把分布式 speculative decoding 抽象成一个多 client、单 verifier 的资源分配问题：每个 client 获得一个 verifier-side token budget (S_i)，系统在总预算约束下动态分配 (S_i)，目标是最大化长期平均 goodput 与公平性。其核心建模仍然是**线性 speculative decoding**：(S_i) 的含义近似是“往前 draft 多少 token”，收益函数是某种 accepted tokens 的期望。
+SSD / tree speculation 改变了这一点。一个 client 不再只准备一条线性草稿链，
+而是在 verifier 返回前预先准备多个可能 outcome 的 frontier。于是系统里至少有
+两类不同的物理动作：
 
-第二类是 G-FAST 这一类工作。它在 GoodSpeed 风格的目标上进一步引入 freshness，把系统目标从单纯 throughput/goodput 推进为 **timely goodput**：accepted tokens 还要乘以 freshness 衰减项 (\Phi(\Delta_i))，长期目标写成 (\sum_i U(\bar y_i))，每时隙通过 gradient scheduling 进行在线分配。它的核心贡献，是把传统“谁能产出更多 accepted tokens”推广为“谁能产出更多**及时且有价值**的 accepted tokens”。但其 client-level service model 仍然是线性 SD 下的 (\mu_i(S_i,\alpha_i))。
+- verifier 端真正要验证的线性 lookahead 长度 \(k_i\)；
+- drafter 端为了支撑当前和后续 round 预铺的 branching / fan-out \(f_i\)。
 
-这两类工作的共同前提是：
+这意味着原先的单变量预算抽象过粗。真正的问题不再是：
 
-**(S_i) 是一个线性 budget。**
+> \(S_i\) 最终应该怎样硬映射成一个 token length？
 
-也就是说，系统默认：给 client 更多的 (S_i)，就等价于允许它往前更长地 speculative draft；client 的未来搜索空间是“一条链”，不是“一个结构化 frontier”。
+而是：
 
-而你提出的问题，正是对这个前提的挑战。
+> 上层调度器是否可以继续使用一个抽象控制信号 \(S_i\)，同时让下层 client
+> policy 将它转化为满足 verifier 和 drafter 双重约束的执行动作
+> \((k_i, f_i)\)？
 
----
+这个分层是当前 idea 的关键升级。
 
-## 2. 核心观察
+## 2. 三层变量
 
-在传统 speculative decoding 调度系统中，真正稀缺的通常不是 drafter 算力，而是 target / verifier 的验证算力。draft 端通常更便宜、更充足，系统真正需要优化的是：
+### 2.1 上层调度信号 \(S_i\)
 
-**如何让有限 verifier compute 尽可能换回更多被接受的 token。**
+\(S_i\) 不再被定义为物理 token 长度，也不直接等于 tree size。
+它是 scheduler-side control knob，用来表达系统在当前 round 希望给 client
+\(i\) 多少 speculative opportunity、priority 或 aggressiveness。
 
-因此，原始 (S_i) 的本质，并不是“给 drafter 派多少活”，而是：
+保留 \(S_i\) 的价值是：
 
-**给某个 client 分配多少 verifier-side speculative budget。**
+- 上层调度仍然可以保持简洁；
+- 不需要把 scheduler 暴露给每个 client 的全部 frontier 细节；
+- client 可以根据本地状态把同一份调度信号转成不同执行形态。
 
-这个理解在普通线性 SD 中已经成立；只是因为 client 内部只有“线性前瞻”一种使用方式，所以 (S_i) 的含义看起来像“长度控制”。
+因此，统一的不是物理约束，而是调度器和 client 之间的控制接口。
 
-但如果引入 SSD / speculative tree 机制，情况就变了。
+### 2.2 Verifier-side action \(k_i\)
 
-在 SSD/tree setting 中，client 不再只能把预算花在线性草稿链上；它可以把同样的预算内部映射为：
+\(k_i\) 是 verifier 端真正执行的线性验证长度。它受到全局 verifier
+瓶颈约束：
 
-- 更深的前瞻；
-- 更宽的分支；
-- 更大的 branch frontier；
-- 或者某种 depth/width 的混合扩展。
+\[
+\sum_i k_i(t) \le C.
+\]
 
-于是，**(S_i) 的形式可以不变，但它的语义已经变了。**
+这里 \(C\) 是每个 scheduling slot 内 verifier 可承受的总验证能力。旧的
+GoodSpeed-style 线性模型中，\(S_i\) 实际上承担的就是这个 \(k_i\) 角色。
 
-它不再只是“线性 token 数”，而更接近：
+### 2.3 Drafter-side action \(f_i\)
 
-**统一的 speculative budget（unified speculative budget）**。
+\(f_i\) 表示 drafter 为当前和未来可能路径准备的 fan-out / branching 强度。
+它不主要受全局 verifier 限制，而受 client 本地 draft-side compute 或 latency
+window 限制。
 
-这个预算在 client 内部可被实现为不同形态的未来搜索空间。
+对每个 client \(i\)，我们写成：
 
-这就是目前整个 idea 的真正核心。
+\[
+g_i(k_i(t), f_i(t); \xi_i(t)) \le c_i.
+\]
 
----
+其中：
 
-## 3. 研究问题的本质变化
+- \(c_i\)：client \(i\) 的本地 drafter-side 预算；
+- \(\xi_i(t)\)：client 状态，例如 draft model speed、prefix length、batch
+  size、当前 cache/frontier 状态、机器负载、outcome uncertainty；
+- \(g_i\)：实现 lookahead \(k_i\) 和 fan-out \(f_i\) 所需的 drafter cost。
 
-### 3.1 旧问题
+这个约束把 SSD 中的关键事实显式化：fan-out 的上限来自 drafter 在 verifier
+完成前最多能准备多少 outcome，而不是来自 verifier token budget 本身。
 
-在 GoodSpeed / G-FAST 的旧问题中，系统做的是：
+## 3. 新系统模型
 
-在多个 client 之间分配线性 budget (S_i)，使得长期 average goodput 或 timely goodput 最大。每个 client 的收益由线性 SD 的 accepted length 模型给出。
+每个 slot 中，上层 scheduler 给出抽象信号 \(S_i(t)\)。client-side policy
+将其转成可执行动作：
 
-换句话说，旧问题默认：
+\[
+(k_i(t), f_i(t)) = \pi_i(S_i(t), \xi_i(t)).
+\]
 
-**给定 (S_i) 后，client-level service model 已经固定。**
+执行动作必须满足：
 
-调度器只负责“跨 client 分多少”，不负责“client 内部怎么用”。
+\[
+\sum_i k_i(t) \le C,
+\]
 
-### 3.2 新问题
+以及：
 
-你的 idea 认为：在 SSD/tree regime 下，这个假设可能不再成立。
+\[
+g_i(k_i(t), f_i(t); \xi_i(t)) \le c_i,\quad \forall i.
+\]
 
-因为给定同一个 (S_i)，不同 client 可能把它转化为截然不同的未来探索结构，最终带来的 verifier-side accepted utility 也会显著不同。于是调度器再把 (S_i) 当作一个单纯的线性长度变量，可能已经发生了**结构性失配**。
+系统随后获得 realized goodput：
 
-因此，新问题不是简单地“再设计一个更好的 (S_i) 调度器”，而是：
+\[
+y_i(t) = \mu_i^{SSD}(k_i(t), f_i(t), \xi_i(t)).
+\]
 
-**研究当 (S_i) 从线性 length budget 变为 unified speculative budget 时，原有的多 client 调度结构是否发生变化。**
+长期目标可以写成：
 
-这比普通调度优化更深，因为它不是在改目标函数，而是在改**资源变量本身的服务语义**。
+\[
+\max \sum_i U(\bar y_i),
+\]
 
----
+其中 \(\bar y_i\) 是 client \(i\) 的长期平均 realized goodput。
 
-## 4. 当前 idea 的正式研究命题
+这个版本比直接写 \(\mu_i^{SSD}(S_i, \xi_i)\) 更扎实，因为它把隐藏在
+\(S_i\) 后面的物理执行动作显式拆出来了。
 
-可以把你的主命题写成如下形式：
+## 4. \(S_i\) 如何进入下层 policy
 
-> 在多 client、单 verifier 的 distributed speculative decoding 系统中，当 client 能够在 SSD/tree 机制下将 verifier 分配的统一 speculative budget (S_i) 自适应映射为更深、更宽或混合的未来探索结构时，如何在有限 verifier 预算下分配各 client 的 (S_i)，使系统的长期 fresh accepted utility 最大？
-> 
+如果 \(S_i\) 既不等于 \(k_i\)，也不等于 \(f_i\)，就必须明确它怎样影响
+\((k_i, f_i)\)。否则 \(S_i\) 会显得太虚。
 
-如果压缩成一句话，就是：
+当前最干净的定义是：\(S_i\) 是 client 可支配的 abstract speculative signal，
+client 在本地状态和约束下选择最优执行动作。
 
-**Freshness-aware scheduling over unified speculative budgets under adaptive client-side expansion.**
+一个可执行版本是：
 
-这里最重要的不是词，而是三个研究含义：
+\[
+(k_i, f_i)
+= \arg\max_{k,f}\ \mu_i^{SSD}(k, f, \xi_i)
+\]
 
-第一，(S_i) 继续保留，避免一开始变量爆炸。
+\[
+\text{s.t.}\quad
+g_i(k, f; \xi_i) \le h_i(S_i, c_i),
+\]
 
-第二，(S_i) 的解释从线性长度推广为统一预算。
+并且上层调度还必须保证 resulting \(k_i\) 满足全局 verifier 约束
+\(\sum_i k_i \le C\)。
 
-第三，client 内部 expansion policy 不再是固定黑箱，而成为影响系统最优分配的关键因素。
+这里 \(h_i(S_i, c_i)\) 可以先取一个简单形式，例如
+\(\min(S_i, c_i)\)，也可以被解释为 \(S_i\) 对 client 本地 drafter
+预算可用比例或 aggressiveness 的调节。关键是：\(S_i\) 控制 policy 的激进程度，
+而不是直接指定物理长度。
 
----
+更简单的 first-pass rule-based policy 也可以作为 baseline：
 
-## 5. 与现有工作的关系
+\[
+k_i = \lfloor \lambda_i S_i \rfloor,\quad
+f_i = \lfloor (1-\lambda_i) S_i \rfloor,
+\]
 
-### 5.1 与 GoodSpeed 的关系
+再通过 \(g_i(k_i,f_i;\xi_i)\le c_i\) 做 clipping 或 projection。
 
-GoodSpeed 是这个框架的直接基础。它说明：
+但从论文主线看，cost-aware policy 更适合当核心定义，因为它把
+"abstract budget -> executable frontier" 这件事说清楚了。
 
-- verifier 是瓶颈；
-- 多 client 之间的预算分配是合理研究对象；
-- gradient scheduling / utility maximization 是可行的主线。
+## 5. Drafter cost model
 
-但 GoodSpeed 仍然建立在“(S_i) = 线性 draft length”的隐含前提上。因此你的工作不是替代 GoodSpeed，而是把它**推广到 SSD/tree regime**。
+当前最缺的是 \(g_i\) 的可落地形式。一个最小模型是：
 
-更准确地说：
+\[
+g_i(k_i, f_i) = a_i k_i + b_i k_i f_i.
+\]
 
-**GoodSpeed 是 unified speculative budget 问题在线性 SD 下的一个特例。**
+直觉是：
 
-### 5.2 与 G-FAST 的关系
+- \(a_i k_i\)：沿主链准备 \(k_i\) 个 step 的基础成本；
+- \(b_i k_i f_i\)：在每个 depth 上额外准备 fan-out outcome 的 branching 成本。
 
-G-FAST 引入 freshness-aware utility，也就是把 accepted goodput 进一步乘以 freshness 函数，并用 log utility + gradient scheduling 追求长期比例公平。它定义的 timely goodput 目标，为你的工作提供了更符合实时场景的系统目标。
+如果后续把 fan-out 写成逐层结构 \(F_{i,d}\)，可以推广为：
 
-但 G-FAST 的 client-level service abstraction 同样是线性的。你的扩展在 G-FAST 语境下可以表达为：
+\[
+g_i(k_i, \{F_{i,d}\}) =
+a_i k_i + b_i \sum_{d=0}^{k_i} F_{i,d}.
+\]
 
-原文的
+这个形式更接近 tree/frontier 执行：总 branching cost 由各层展开的候选数决定。
+第一阶段可以先使用 \(a_i k_i + b_i k_i f_i\)，因为它足以表达
+depth-width tradeoff。
 
-[
+## 6. 为什么不能把 \(S_i\) 硬映射成 \(k_i\)
 
-y_i(t)=\mu_i(S_i(t),\alpha_i(t))\cdot \Phi(\Delta_i(t))
+硬映射 \(S_i \to k_i\) 会丢掉两个关键结构。
 
-]
+第一，它丢掉 drafter-side tradeoff。同样的 verifier lookahead \(k_i\)，不同
+\(f_i\) 会产生不同后果：小 fan-out 当前便宜，但未来 cache hit 或 async gain
+可能弱；大 fan-out 当前更重，但可能让 verifier 返回后更快衔接下一轮。
 
-被推广为
+第二，它把两种瓶颈混成一种。\(k_i\) 主要受全局 verifier 能力限制，
+\(f_i\) 主要受本地 drafter 能力和时延窗口限制。二者来源、粒度和作用位置都不同。
+把它们压回单一长度变量会掩盖 SSD 的问题结构。
 
-[
+因此，更合理的定义是：
 
-y_i^{\text{SSD}}(t)=\mu_i^{\text{SSD}}(S_i(t),\xi_i(t))\cdot \Phi(\Delta_i(t)),
+> \(S_i\) 是上层调度信号；\(k_i\) 和 \(f_i\) 是下层执行动作；
+> verifier 约束落在 \(\sum_i k_i\) 上；drafter 约束落在
+> \(g_i(k_i,f_i;\xi_i)\) 上。
 
-]
+## 7. 研究问题
 
-其中 (\xi_i(t)) 表示 client 内部 frontier / tree / branch-quality 状态。
+这个 framing 产生三个核心科学问题。
 
-因此，你的工作相对于 G-FAST 的本质，不是再加一个新的 freshness term，而是：
+### Q1. 双资源约束是否改变最优分配结构？
 
-**把 freshness-aware scheduling 的 client-level service model 从 linear SD 推广到 adaptive SSD/tree SD。**
+旧模型只有一个动作变量和一个约束：
 
----
+\[
+\sum_i S_i \le C.
+\]
 
-## 6. 研究假设与核心科学问题
+新模型有一个抽象调度信号、两个执行动作和两类瓶颈：
 
-你的 idea 能否成立，取决于以下中心假设是否为真：
+\[
+\sum_i k_i \le C,
+\quad
+g_i(k_i,f_i;\xi_i)\le c_i.
+\]
 
-### 假设 H1：统一预算假设
+需要证明或实验展示：当 client 的 \(g_i\)、\(\xi_i\)、\(\pi_i\) 不同时，
+线性长度调度会产生系统性 misallocation。
 
-在 SSD/tree setting 下，保留单一变量 (S_i) 是合理的；虽然 client 内部实现复杂，但从 verifier 视角仍可把其理解为一个统一 speculative budget。
+### Q2. \(S_i\)-conditioned policy 如何设计？
 
-### 假设 H2：结构性失配假设
+我们需要比较至少三类 policy：
 
-在 SSD/tree regime 下，继续把 (S_i) 当作线性长度预算进行调度，会产生系统性次优甚至错误的资源分配。
+- depth-heavy：更偏向大 \(k\)、小 \(f\)，优先当前 verifier throughput；
+- width-heavy：更偏向小 \(k\)、大 \(f\)，优先未来 frontier/cache benefit；
+- cost-aware：在 \(g_i(k,f;\xi_i)\le h_i(S_i,c_i)\) 下最大化
+  \(\mu_i^{SSD}(k,f,\xi_i)\)。
 
-### 假设 H3：结构性收益假设
+这能把 "unified budget" 从概念话变成可执行算法。
 
-允许 client 自适应地把 (S_i) 用于不同 frontier 扩展形态，可以显著提升 verifier-side accepted utility，尤其在 freshness-sensitive 条件下更明显。
+### Q3. 如何从真实 SSD 运行校准 \(g_i\) 和 \(\mu_i^{SSD}\)？
 
-### 假设 H4：调度结构变化假设
+需要从真实 async SSD runs 中拟合：
 
-在 unified speculative budget 语义下，最优分配结构不再仅由 acceptance rate (\alpha_i) 决定，还受到 frontier quality、expansion efficiency、freshness decay 等因素共同影响。
+- \(k,f\) 对 accepted suffix length 的影响；
+- \(k,f\) 对 cache hit / miss 行为的影响；
+- \(k,f\) 对 draft latency 和 target verify time 的影响；
+- 不同 workload / prompt distribution 下的参数异质性。
 
-如果 H2 和 H3 不能成立，这个 idea 会明显缩水，退化成“对 (S_i) 的更优雅解释”。如果 H2/H3/H4 都成立，这个 idea 才真正成为一个新问题定义。
+如果实测曲线几乎线性，论文主张会变弱；如果不同 shape 诱导出明显不同的
+marginal goodput 和 cost tradeoff，这个方向就成立。
 
----
+## 8. 最小可验证路径
 
-## 7. 形式化建模方向
+### 阶段 A：重写 simulator 变量语义
 
-建议建模时不要一开始就把 depth、width、frontier size 全部显式抛出来，而是采用“两层抽象”的方式。
+把当前 simulator 从 "budget \(S\) 直接产生 service" 改为：
 
-### 7.1 上层：系统调度问题
+1. scheduler 输出 \(S_i\)；
+2. client policy 输出 \((k_i,f_i)\)；
+3. 环境检查 \(\sum_i k_i\le C\) 和 \(g_i(k_i,f_i;\xi_i)\le c_i\)；
+4. service model 输出 \(\mu_i^{SSD}(k_i,f_i,\xi_i)\)。
 
-上层依然是一个多 client 调度问题。给定总 verifier 预算 (C)，每时隙选择各 client 的 (S_i(t))，满足
+### 阶段 B：结构性分离实验
 
-[
+构造 two-client case：
 
-\sum_i S_i(t)\le C.
+- client A 线性 acceptance 更高，但 drafter cost 高或 fan-out 效率差；
+- client B 线性 acceptance 较低，但在某些 \((k,f)\) shape 下 frontier 效率更高。
 
-]
+目标是展示：linear scheduler 和 two-level SSD-aware scheduler 给出相反的
+allocation ordering。
 
-长期目标可以沿用 G-FAST 风格：
+### 阶段 C：真实 shape grid 校准
 
-[
+用真实 SSD runs 扫描 \((k,f)\)：
 
-\max \sum_i U(\bar y_i).
+- accepted suffix mean；
+- cache hit rate；
+- draft-side timing；
+- verifier-side timing；
+- accepted tokens per verify second；
+- accepted tokens per draft cost proxy。
 
-]
+这些数据用于拟合 \(g_i\) 和 \(\mu_i^{SSD}\)，替代手写 service curve。
 
-如果强调 freshness，就定义
+## 9. 预期贡献
 
-[
+如果这个方向成立，贡献应该写成三层。
 
-y_i(t)=\mu_i^{\text{SSD}}(S_i(t),\xi_i(t))\cdot \Phi(\Delta_i(t)).
+第一，问题定义：指出 SSD / tree speculation 下，单一线性 budget 不足以刻画
+multi-client scheduling；提出上层 \(S_i\)、下层 \((k_i,f_i)\) 的双层控制模型。
 
-]
+第二，结构性结果：证明或展示线性长度调度在双资源耦合约束下会 misallocate，
+并给出 allocation reversal 的条件。
 
-如果先不引入 freshness，也可以先做 GoodSpeed 风格的
+第三，调度方法：设计 SSD-aware policy，把抽象 \(S_i\) 映射为满足 verifier
+和 drafter 约束的 \((k_i,f_i)\)，并用真实 SSD profile 校准。
 
-[
+## 10. 风险
 
-y_i(t)=\mu_i^{\text{SSD}}(S_i(t),\xi_i(t)).
+最大风险是 \(S_i\) 变成一个过于抽象的变量。解决办法是必须给出明确的
+\(\pi_i(S_i,\xi_i)\)，至少包括一个可运行的 rule-based 版本和一个 cost-aware
+版本。
 
-]
+第二个风险是 \(g_i\) 不可校准。如果 draft-side timing 或 fan-out cost 无法可靠
+测量，可以先用 proxy，例如 draft tokens generated、frontier node count、
+cache write count 或 draft step latency。
 
-这里关键是：
+第三个风险是收益只来自更强的 local policy，而不是调度结构。实验中必须包含
+固定 \((k,f)\)、linear \(S\to k\)、rule-based \(\pi_i\)、cost-aware \(\pi_i\)
+等 ablation，说明增益来自双层建模和跨 client 分配，而不是单纯调参。
 
-**上层调度变量仍然只是 (S_i)**。
+## 11. 当前最准确的一句话
 
-### 7.2 下层：client 内部 expansion policy
-
-给定某个 client 获得预算 (S_i)，其内部可以用策略 (\pi_i) 把预算转化为某种 frontier expansion。于是产生：
-
-[
-
-\mu_i^{\text{SSD}}(S_i,\xi_i;\pi_i).
-
-]
-
-这一步有两种研究路径。
-
-第一种，固定 (\pi_i) 为若干可控 heuristic，例如：
-
-- 深度优先 expansion；
-- 宽度优先 expansion；
-- 混合 expansion；
-- frontier-quality-aware expansion。
-
-第二种，把 (\pi_i) 也纳入优化。
-
-从现实性看，第一阶段应该走第一种。先证明结构性差异存在，再考虑联合优化。
-
----
-
-## 8. 研究贡献的理想形态
-
-如果这个工作做成功，最核心的贡献应该是以下三条，而不是只说“我们做了一个新调度器”。
-
-### 贡献 1：问题定义层面的推广
-
-提出 unified speculative budget 的概念，把 verifier-side (S_i) 从线性 draft length 推广为可在 SSD/tree 下自适应实现的统一未来探索预算。
-
-### 贡献 2：结构性结论
-
-证明或实验性展示：在 SSD/tree regime 下，沿用线性 (S_i) 语义会导致系统性失配；最优调度结构发生变化。
-
-### 贡献 3：新调度框架
-
-在 freshness-aware 或 goodput-aware 的系统目标下，设计一种面向 unified speculative budget 的 scheduling 方法，并证明/验证其优于线性-budget baseline。
-
-注意，这三条中最重要的是第二条。没有第二条，第一条和第三条很容易被看成表述与 heuristic。
-
----
-
-## 9. 最小可验证研究路径
-
-现在最适合的不是直接写 full theory，而是先做一个**最小验证闭环**。
-
-### 阶段 A：建立简化 simulator
-
-构造一个多 client、单 verifier 的 SSD/tree simulator。每个 client 有：
-
-- acceptance profile；
-- frontier expansion policy；
-- freshness state（可选）；
-- verifier budget (S_i)。
-
-比较两类系统：
-
-1. **Linear-Budget Scheduler**
-    
-    仍把 (S_i) 当作线性 SD length 的代理变量进行调度。
-    
-2. **Unified-Budget Scheduler**
-    
-    允许 client 把 (S_i) 映射到 tree/frontier expansion，并按其真实 SSD 收益反馈进行调度。
-    
-
-### 阶段 B：寻找结构性分离
-
-你要找的不是小幅度平均收益提升，而是**regime change**。例如：
-
-- 在相同 target budget 下，Unified-Budget 明显提升 accepted utility；
-- 提升主要出现在某些 acceptance heterogeneity / freshness decay / load 区间；
-- Linear-Budget 的 allocation 在这些区间表现出系统性误配。
-
-### 阶段 C：建立简化理论
-
-在一个非常简化的 two-client 或 finite-action setting 下，证明至少一个结构性命题，例如：
-
-- 线性 (\mu_i(S_i)) 与树形 (\mu_i^{tree}(S_i)) 诱导出不同的最优 allocation ordering；
-- 或者最优分配阈值不再仅由 (\alpha_i) 决定。
-
-只要能证明一个干净的小命题，就足以显著提高论文硬度。
-
----
-
-## 10. 评估指标
-
-这个项目不能只看 throughput。建议至少测以下指标：
-
-第一，accepted tokens / verifier compute。
-
-这是最基础的 target-side资源效率。
-
-第二，fresh accepted utility。
-
-如果走 G-FAST 方向，这是核心指标。
-
-第三，wasted verification attention。
-
-即 verifier 在低质量 frontier 上花掉的预算。
-
-第四，wasted speculative expansion。
-
-如果 client 预扩展很多最终未被有效消费的 frontier，这部分也应统计。
-
-第五，公平性指标。
-
-如果引入 utility maximization，可看 Jain’s fairness index 或 proportional fairness 相关指标。
-
-真正重要的是：要证明 unified-budget 调度的收益来自**更好的结构理解**，而不是简单做了更多计算。
-
----
-
-## 11. 风险分析
-
-这项研究最大的风险不是技术实现，而是学术贡献可能塌缩。主要有四类风险。
-
-### 风险 1：只有语义重解释，没有结构性新结果
-
-这是最大风险。若最终只能说“(S_i) 也可以理解成 tree budget”，但调度和结果没有本质变化，则论文价值会明显下降。
-
-### 风险 2：复杂性被隐藏而非解决
-
-如果你继续只优化 (S_i)，但 client 内部 expansion 完全依赖黑箱 heuristic，审稿人可能会质疑你只是把真实难点藏到了下层。
-
-### 风险 3：收益不够大
-
-即便 unified-budget 更合理，如果实验上只比线性调度提高 3%-5%，而且不稳定，那很难支撑高水平投稿。
-
-### 风险 4：理论过重导致无法收敛
-
-如果一开始就试图建立完整 fluid-limit / asymptotic optimality 理论，项目可能陷入证明泥潭。更现实的是先做简化结构结论，再决定是否扩展。
-
----
-
-## 12. 学术定位评估
-
-客观讲，这个 idea 的性质是：
-
-**高风险，中高上限。**
-
-它比 GoodSpeed 或 G-FAST 风格的“在既有 client-level abstraction 上做调度”更有野心，因为它直接质疑了资源变量的服务语义；但它也更危险，因为很容易最后只剩一个优雅的表述，没有对应的硬结果。
-
-和现有工作相比，可以这样判断：
-
-- 相比 GoodSpeed：你的 idea 更深，但更不稳。
-- 相比 G-FAST：你的 idea 在 abstraction 层更强，但 freshness-aware story 不如 G-FAST 那样天然清晰。
-- 作为论文题眼：它有潜力。
-- 作为已经成熟的 paper idea：目前还不是。
-
-这个方向真正值得做的前提，不是它看上去“新”，而是你能够用实验或理论证明：
-
-**线性 (S_i) 视角在 SSD/tree regime 下确实失效。**
-
-这是整个项目的生死线。
-
----
-
-## 13. 建议的研究路线图
-
-### 短期（1–2 周）
-
-完成一页 problem statement，明确：
-
-- 系统模型；
-- 旧问题 vs 新问题；
-- unified (S_i) 的定义；
-- 主要假设与目标指标。
-
-### 中期（2–4 周）
-
-实现最小 simulator，先不做复杂理论。验证是否存在明显 regime change。
-
-### 中期第二阶段（4–6 周）
-
-固定几类 expansion policy，做系统性 ablation：
-
-- depth-heavy；
-- width-heavy；
-- mixed；
-- linear baseline。
-
-### 后期（6–8 周）
-
-若实验结果成立，再写简化理论结论；若不成立，尽早收缩为“经验性系统论文”或放弃该方向。
-
----
-
-## 14. 最终判断
-
-目前我们的 idea 可以总结为：
-
-> 我们并不是简单地为 SSD/tree decoding 设计一个新的调度器，而是在提出一个更基本的问题：在 SSD/tree regime 下，verifier-side 预算变量 (S_i) 是否仍应被视为线性 draft length，还是应被视为统一 speculative budget；如果是后者，那么多 client 调度问题的最优结构是否已经改变。
-> 
-
-这是一个真正有研究价值的问题。它的价值不在于“把 (S_i) 换个名字”，而在于：
-
-**它怀疑现有 speculative scheduling 工作共同依赖的线性 service abstraction，是否在更强的 decoding regime 下已经不再成立。**
-
-如果你能证明这个怀疑是对的，这个项目就有可能从一个漂亮的 framing，变成一篇有实质技术贡献的论文。
-
-如果证明不了，它就会退化成概念重述。
-
-这是当前最准确、也最冷静的总结。
-
-如果你需要，我下一步可以把这份研究报告进一步压成适合导师/合作者看的版本，例如“1页摘要版”或“Problem Statement + Research Questions + Contributions”版本。
+在 SSD setting 中，问题的关键不在于 verifier-side budget \(S_i\) 是否仍线性，
+而在于原先单一线性资源抽象已不足以刻画系统真实瓶颈。实际系统同时存在两类约束：
+全局 verifier 预算决定各 client 可提交的线性 lookahead \(k_i\)，本地 drafter
+预算限制其可支持的 fan-out \(f_i\) 及其与 \(k_i\) 的组合。因此，更合理的建模不是
+将 \(S_i\) 硬映射为 \(k_i\)，而是将 \(S_i\) 作为上层调度抽象变量，通过下层策略
+映射为满足双重约束的执行动作 \((k_i,f_i)\)。

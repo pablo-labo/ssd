@@ -1,574 +1,367 @@
-# Toward a Top-Tier Conference Paper: Execution Plan
+# Toward a Paper: Execution Plan
 
 ## 0. Current Position
 
-This project is currently at the **problem-framing plus toy-simulator stage**.
+This project is at the problem-framing plus early-simulator stage.
 
 What we already have:
 
-- A strong research framing in `paper/idea.md`.
-- A working deterministic simulator in `sim/`.
-- A clean first comparison between:
-  - `LinearBudgetScheduler`: allocates verifier budget as if `S_i` were linear speculative length.
-  - `UnifiedBudgetScheduler`: allocates verifier budget using SSD/tree-aware service semantics.
-- Initial sweep evidence:
-  - `evaluated_cases=81`
-  - `unified_win_rate=60/81 (74.1%)`
-  - `allocation_reversal_rate=60/81 (74.1%)`
-  - `utility_reversal_rate=3/81 (3.7%)`
-- A plausible next bridge to real SSD metrics through `bench/bench.py` and the existing engine metrics.
+- A working SSD codebase and benchmark harness.
+- A deterministic scheduling simulator in `sim/`.
+- Initial real async SSD shape measurements over several `(k, f)` settings.
+- A previous unified-budget framing in `paper/idea.md`.
 
-What we do not yet have:
+The framing has now changed in an important way:
 
-- A calibrated service model grounded in real SSD runs.
-- A theory result showing when linear-budget scheduling provably misallocates.
-- A full online scheduler with a clear algorithmic contribution beyond "use the unified service curve".
-- Strong real-system experiments showing meaningful gains under realistic multi-client workloads.
-- A polished paper narrative with figures, ablations, baselines, and reviewer-proof threat analysis.
+- Old version: treat `S_i` as a unified verifier-side speculative budget.
+- New version: treat `S_i` as an upper-level scheduler signal, then map it
+  through a client policy into physical actions `(k_i, f_i)`.
 
-The current state is promising but not yet paper-grade. The idea is valuable only if we can show that the linear interpretation of `S_i` genuinely fails in SSD/tree regimes, and that a unified-budget scheduler fixes this failure in a measurable and principled way.
+This avoids forcing one variable to mean linear length, tree size, verifier work,
+and drafter work at the same time.
 
-## 1. Target Paper Thesis
+## 1. Target Thesis
 
-The paper should not be framed as "we add freshness to SSD" or "we tune a simulator".
+The paper should be framed around the verifier/drafter split, not around
+deadline or age-aware serving objectives. Those can remain future work.
 
-The top-level thesis should be:
+The thesis should be:
 
-> In multi-client speculative serving, existing scheduling methods implicitly treat verifier-side budget `S_i` as linear draft length. This abstraction breaks in SSD/tree speculation, where the same verifier budget can be mapped to structurally different frontier expansions. We introduce unified speculative budget scheduling, characterize when linear-budget scheduling misallocates resources, and show that SSD-aware scheduling improves fresh accepted utility under realistic serving workloads.
+> In multi-client SSD serving, the traditional linear speculative-budget
+> abstraction is too coarse because verifier and drafter bottlenecks act on
+> different physical variables. The verifier sees a global linear lookahead
+> constraint over `k_i`, while each drafter has a local compute/latency constraint
+> over the chosen `(k_i, f_i)` frontier shape. We introduce a two-level scheduling
+> model where the scheduler emits an abstract signal `S_i`, and each client maps
+> it to executable SSD actions `(k_i, f_i)` under both constraints.
 
 The contribution stack should be:
 
 1. **Problem abstraction**
-   - Define unified speculative budget.
-   - Show that GoodSpeed/G-FAST-style linear service models are special cases.
+   - Define the two-level control model: scheduler signal `S_i`, execution actions
+     `(k_i, f_i)`.
+   - Separate global verifier constraint from local drafter constraint.
 
-2. **Structural result**
-   - Show that tree/frontier service curves can reverse the optimal allocation order induced by linear service curves.
-   - This must be more than an empirical observation.
+2. **Cost and service model**
+   - Define `g_i(k_i, f_i; xi_i) <= c_i` for draft-side feasibility.
+   - Define `mu_i^SSD(k_i, f_i, xi_i)` for realized goodput.
+   - Start with a simple model such as `g_i = a_i k_i + b_i k_i f_i`.
 
-3. **Scheduling algorithm**
-   - Design a freshness-aware unified-budget scheduler using online estimates of SSD service efficiency and frontier state.
+3. **Structural result**
+   - Show that linear `S_i -> k_i` scheduling can misallocate when clients have
+     different draft-side costs or depth-width efficiencies.
 
 4. **Empirical validation**
-   - Calibrate the service model with real SSD measurements.
-   - Evaluate simulator-scale multi-client regimes.
-   - Validate selected cases in the real SSD engine or a trace-driven serving harness.
+   - Calibrate `g_i` and `mu_i^SSD` from real SSD `(k, f)` shape runs.
+   - Evaluate whether the calibrated curves induce allocation reversals or
+     measurable goodput gains in multi-client scheduling.
 
 ## 2. Main Scientific Questions
 
-The paper must answer four questions clearly.
-
-### Q1. Is `S_i` still a linear length budget in SSD/tree speculation?
+### Q1. What is the right physical constraint?
 
 Expected answer:
 
-No. In SSD/tree regimes, `S_i` is better understood as verifier-side speculative budget. The client can spend that budget across depth, width, frontier refresh, or mixed expansion.
+The verifier-side constraint is:
 
-Evidence needed:
+```text
+sum_i k_i <= C
+```
 
-- Formal definition of linear budget vs unified budget.
-- Real SSD measurements showing that different speculative shapes with comparable verifier cost produce different accepted-token curves.
+not `sum_i S_i <= C`.
 
-### Q2. Does the old abstraction cause real scheduling errors?
+`S_i` is retained as an abstract scheduling signal, but the verifier physically
+executes `k_i`.
 
-Expected answer:
-
-Yes. Linear-budget scheduling can assign budget to clients with high linear acceptance but poor frontier efficiency, while under-allocating clients with better SSD/tree expansion efficiency.
-
-Evidence needed:
-
-- A clean two-client theorem or proposition.
-- Simulator allocation reversal results.
-- Real-data-calibrated examples showing the same reversal.
-
-### Q3. Does unified-budget scheduling improve the objective?
+### Q2. What constrains fan-out?
 
 Expected answer:
 
-Yes, especially under heterogeneous clients, constrained verifier budgets, high load, and freshness-sensitive workloads.
+Fan-out is constrained by the drafter's local compute and latency window:
 
-Evidence needed:
+```text
+g_i(k_i, f_i; xi_i) <= c_i
+```
 
-- Fresh accepted utility gains.
-- Accepted tokens per verifier time.
-- Backlog and fairness analysis.
-- Ablations over freshness, load, client heterogeneity, and expansion policy.
+This is the part missing from a pure linear-budget model.
 
-### Q4. Is the result robust enough for a top-tier systems/ML venue?
+### Q3. How does `S_i` affect execution?
 
 Expected answer:
 
-Only if we move beyond the current hand-designed simulator curves.
+Through a client policy:
 
-Evidence needed:
+```text
+(k_i, f_i) = pi_i(S_i, xi_i)
+```
 
-- Calibration with real SSD metrics.
-- Strong baselines.
-- Sensitivity analysis.
-- Clear limitations.
+The paper must give at least one executable policy. The best first version is
+cost-aware:
 
-## 3. Where We Are on the Evidence Ladder
+```text
+(k_i, f_i) = argmax mu_i^SSD(k, f, xi_i)
+subject to g_i(k, f; xi_i) <= h_i(S_i, c_i)
+```
 
-### Level 1: Conceptual framing
+### Q4. Does this change scheduling decisions?
 
-Status: **mostly complete**.
+Expected answer:
 
-`paper/idea.md` already explains:
+It should, in heterogeneous regimes. A client with high linear acceptance but
+poor fan-out efficiency may receive less useful service than a client with lower
+linear acceptance but better `(k, f)` frontier efficiency.
 
-- why verifier budget is the scarce resource;
-- why `S_i` is currently treated as linear speculative length;
-- why SSD/tree speculation changes the meaning of `S_i`;
-- why freshness-aware scheduling should use an SSD-aware service model.
+The minimum required evidence is a clean two-client allocation reversal.
 
-Remaining work:
+## 3. Evidence Ladder
 
-- Compress this into a one-page problem statement.
-- Convert notation into paper-ready math.
-- Decide the exact target venue and paper style.
+### Level 1: Problem statement
 
-### Level 2: Toy simulator evidence
+Status: in progress.
 
-Status: **partially complete**.
+Deliverable:
 
-Current simulator demonstrates:
+- `paper/idea.md` rewritten around two-level control.
 
-- unified scheduling often changes allocation order;
-- unified scheduling wins in most swept toy regimes;
-- gains are present but currently modest;
-- structural reversal is much stronger than utility reversal.
+Acceptance criteria:
 
-Main weakness:
+- `S_i`, `k_i`, and `f_i` have distinct meanings.
+- The constraints are explicit.
+- No deadline or age-aware serving objective is needed for the core story.
 
-- The unified service model is hand-designed.
-- The simulator currently proves plausibility, not realism.
+### Level 2: Toy structural simulator
 
-Immediate improvement:
+Status: current simulator exists, but its variable semantics need updating.
 
-- Add a minimal "structural separation" experiment with two clients.
-- Make the simulator output service curves and marginal utility curves.
-- Add confidence-style summaries over randomized client populations.
+Immediate change:
 
-### Level 3: Theoretical evidence
+- Scheduler emits `S_i`.
+- Client policy maps `S_i` to `(k_i, f_i)`.
+- Environment enforces `sum k_i <= C`.
+- Client feasibility uses `g_i(k_i, f_i; xi_i) <= c_i`.
+- Service is `mu_i^SSD(k_i, f_i, xi_i)`.
 
-Status: **missing**.
+Acceptance criteria:
 
-Minimum acceptable theory target:
+- We can run linear `S_i -> k_i` baseline.
+- We can run rule-based and cost-aware `(k_i, f_i)` policies.
+- We can plot marginal service curves over `k` and `f`.
 
-- A two-client finite-budget proposition showing that linear and tree-aware service models can induce opposite optimal allocation orders.
+### Level 3: Structural separation
 
-Possible theorem shape:
+Status: missing.
 
-Let client A have higher linear acceptance parameter than client B:
+Minimum theorem or proposition:
+
+There exist two clients A and B such that:
 
 ```text
 alpha_A > alpha_B
 ```
 
-Under a linear service model, the greedy marginal scheduler allocates more budget to A.
-
-But under an SSD/tree service model:
+so a linear scheduler prefers A, but under SSD-aware execution:
 
 ```text
-mu_i^SSD(S, xi_i) = g_i(S) * h_i(xi_i)
+Delta_B^SSD(k, f, xi_B) > Delta_A^SSD(k, f, xi_A)
 ```
 
-there exist frontier states `xi_A, xi_B` and expansion efficiencies such that:
+for the relevant budget range, so the optimal allocation prefers B.
+
+This only needs to be a small finite-action result. The goal is to formalize the
+resource mismatch, not to prove a grand asymptotic theorem.
+
+### Level 4: Real SSD calibration
+
+Status: early measurements exist.
+
+Needed measurements:
+
+- `(k, f)` shape.
+- accepted suffix length.
+- cache hit rate.
+- draft-side timing or proxy.
+- target verify time.
+- accepted tokens per verifier second.
+- accepted tokens per draft-cost proxy.
+
+First fitting target:
 
 ```text
-Delta_B^SSD(S) > Delta_A^SSD(S)
+g_i(k, f) = a_i k + b_i k f
+mu_i^SSD(k, f, xi_i) = empirical goodput table or smooth fit
 ```
 
-for the relevant marginal budget units, so the optimal unified allocation gives more budget to B.
+Acceptance criteria:
 
-The theorem does not need to be grand. It only needs to formalize the structural mismatch cleanly.
+- Different `(k, f)` shapes produce measurably different cost-service tradeoffs.
+- The fitted curves are non-linear enough to affect scheduler decisions.
 
-### Level 4: Real SSD metric calibration
+### Level 5: Trace-driven evaluation
 
-Status: **not started, but paths exist**.
-
-Relevant real metrics already mentioned in `sim/README.md`:
-
-- `accepted_suffix_lens_with_recovery`
-- `accepted_suffix_lens_on_hit`
-- `accepted_suffix_lens_on_miss`
-- `cache_hits`
-- `target_step_times`
-- `target_verify_times`
-- `prefill_total_time`
-- `decode_total_time`
-- `prefill_total_tokens`
-- `decode_total_tokens`
-
-Goal:
-
-Fit empirical service curves:
-
-```text
-mu_i^SSD(S, xi; pi)
-```
-
-from real SSD runs instead of relying on hand-designed curves in `sim/policy.py`.
-
-First real-run matrix:
-
-- Hardware: RTX A4500 first, H100 later if available.
-- Target: `Qwen/Qwen3-8B`.
-- Draft: `Qwen/Qwen3-0.6B`.
-- Dataset: `gsm` first, then code/math/chat mixes.
-- Temperature: `0` first, then nonzero temperature.
-- Async SSD shapes:
-  - `(k=4, f=2)`
-  - `(k=6, f=3)`
-  - `(k=8, f=4)`
-- Optional later:
-  - varied `fan_out_list`;
-  - longer output lengths;
-  - different prompt distributions.
-
-Required artifact:
-
-- A CSV or JSONL export per run containing:
-  - model setup;
-  - dataset;
-  - speculative shape;
-  - accepted suffix stats;
-  - cache hit stats;
-  - target verify times;
-  - accepted tokens per verifier second;
-  - prompt/output length metadata.
-
-### Level 5: Trace-driven or real serving validation
-
-Status: **missing**.
+Status: missing.
 
 Minimum viable version:
 
-- Use real SSD measurements to build per-client empirical service profiles.
-- Feed those profiles into the simulator.
-- Evaluate multi-client scheduling over synthetic arrivals and freshness deadlines.
+- Use calibrated shape profiles from real SSD runs.
+- Create heterogeneous client classes with different `a_i`, `b_i`, and service
+  curves.
+- Compare:
+  - equal allocation;
+  - linear `S_i -> k_i` scheduler;
+  - fixed-shape SSD scheduler;
+  - two-level SSD-aware scheduler.
 
-Stronger version:
+Acceptance criteria:
 
-- Build a trace-driven serving harness where multiple client streams choose requests from different datasets.
-- Scheduler selects per-client budget/shape decisions.
-- The engine executes representative SSD configurations or replays measured profiles.
-
-Best version:
-
-- Real online multi-client SSD serving loop.
-- This is probably too expensive for the first paper unless the engine already supports most of it cleanly.
-
-Recommended path:
-
-Start with trace-driven validation. It gives most of the paper value with much less engineering risk.
+- Show where two-level scheduling helps.
+- Show where it does not help.
+- Connect wins to draft-side cost or depth-width efficiency, not to arbitrary
+  simulator knobs.
 
 ## 4. Concrete Work Plan
 
-### Phase A: Make the claim crisp
+### Phase A: Clean notation and docs
 
 Deliverables:
 
-- `paper/problem_statement.md`
-- 1-page figure sketch:
-  - left: linear speculative budget as a chain;
-  - right: unified speculative budget as a tree/frontier;
-  - bottom: same `S_i`, different marginal service curves.
-- Paper contribution list.
+- Rewritten `paper/idea.md`.
+- A one-page problem statement.
+- Figure sketch:
+  - top: old linear chain, `S_i = k_i`;
+  - middle: SSD frontier with `(k_i, f_i)`;
+  - bottom: two constraints, `sum k_i <= C` and `g_i <= c_i`.
 
-Acceptance criteria:
-
-- A collaborator can explain the paper in 60 seconds.
-- The difference from GoodSpeed/G-FAST is obvious.
-- The role of SSD is essential, not decorative.
-
-### Phase B: Strengthen the simulator
+### Phase B: Update simulator semantics
 
 Deliverables:
 
-- Structural separation experiment.
-- Randomized regime sweep.
-- Service curve plotting script.
-- Cleaner metrics:
-  - accepted tokens;
-  - fresh accepted utility;
-  - accepted tokens per verifier budget;
-  - final backlog;
-  - allocation reversal;
-  - marginal curve reversal;
-  - fairness;
-  - wasted verifier budget with consistent units.
+- `ClientPolicy` returns `(k, f)` instead of direct service.
+- `DrafterCostModel` abstraction.
+- `VerifierBudgetProjector` or equivalent feasibility check for `sum k_i <= C`.
+- Baselines:
+  - linear length baseline;
+  - rule-based depth/width split;
+  - cost-aware policy.
 
-Acceptance criteria:
-
-- We can produce a figure where linear and unified schedulers make visibly different choices.
-- Gains are not only from one hand-picked regime.
-- There are ablations showing when unified scheduling helps and when it does not.
-
-### Phase C: Add the minimal theory
+### Phase C: Add structural experiment
 
 Deliverables:
 
-- One proposition about allocation-order reversal.
-- One proof sketch in paper notation.
-- Optional corollary connecting freshness decay to larger loss under stale allocation.
+- Two-client separation script.
+- Marginal curve plot over budget units.
+- Table showing allocation reversal.
 
-Acceptance criteria:
-
-- The theorem is simple enough to fit in the main paper.
-- It directly explains a simulator or trace result.
-- It does not require unrealistic assumptions that contradict the experiments.
-
-### Phase D: Collect real SSD calibration data
+### Phase D: Calibrate from real runs
 
 Deliverables:
 
-- Metrics export path from `bench/bench.py`.
-- Real-run matrix for Qwen3-8B/Qwen3-0.6B.
-- CSV/JSONL result files.
-- Fitting script mapping real runs to service profiles.
+- Shape grid summary over `(k, f)`.
+- Fit or table for `g_i`.
+- Fit or table for `mu_i^SSD`.
+- Sensitivity over workload classes if data is available.
 
-Acceptance criteria:
+### Phase E: Paper skeleton
 
-- We can plot accepted suffix length and verifier efficiency versus speculative shape.
-- We can fit or tabulate `mu^SSD(S, xi, pi)` for at least a few client/workload classes.
-- The fitted curves differ enough from linear curves to support the paper's premise.
+Sections:
 
-### Phase E: Build trace-driven evaluation
-
-Deliverables:
-
-- Multi-client workload generator:
-  - interactive;
-  - search/batch;
-  - code/math;
-  - commodity chat.
-- Trace-driven scheduler comparison:
-  - linear-budget baseline;
-  - GoodSpeed-style marginal scheduler;
-  - G-FAST-style freshness scheduler;
-  - unified-budget scheduler;
-  - oracle upper bound if feasible.
-- Full sweep over:
-  - verifier budget;
-  - load;
-  - freshness decay;
-  - client heterogeneity;
-  - frontier quality;
-  - service curve noise.
-
-Acceptance criteria:
-
-- Unified scheduling wins in the regimes predicted by the theory.
-- The result is robust to reasonable parameter changes.
-- Baselines are strong enough that the gain is credible.
-
-### Phase F: Paper assembly
-
-Deliverables:
-
-- Abstract.
 - Introduction.
-- Related work.
-- System model.
-- Structural mismatch theorem.
-- Scheduler algorithm.
-- Experimental setup.
-- Results.
+- Background: speculative decoding and SSD.
+- Why linear budget fails.
+- Two-level system model.
+- Structural separation.
+- Scheduler policy.
+- Calibration and evaluation.
 - Limitations.
-
-Target figures:
-
-1. Motivation figure: linear chain budget vs unified tree/frontier budget.
-2. Service curve figure: real SSD accepted utility vs budget/shape.
-3. Structural reversal figure: two-client allocation reversal.
-4. Main result: fresh accepted utility under load.
-5. Ablation: freshness/load/heterogeneity.
-6. Calibration figure: simulator predictions vs real SSD metrics.
-7. Fairness/backlog figure.
 
 ## 5. Scheduler Design Direction
 
-The scheduler should be more than "greedy over a hand-written unified curve".
+Start with a conservative algorithm:
 
-Recommended algorithm:
+1. For each client and candidate scheduling signal `S`, enumerate feasible
+   `(k, f)` actions.
+2. Remove actions violating `g_i(k, f; xi_i) <= h_i(S_i, c_i)`.
+3. Estimate `mu_i^SSD(k, f, xi_i)` from a table or fitted curve.
+4. Choose the best local action for each candidate `S`.
+5. Allocate across clients while respecting `sum_i k_i <= C`.
 
-1. Maintain an online estimate for each client:
-
-```text
-hat_mu_i(S, xi_i, pi_i)
-```
-
-2. Track freshness:
-
-```text
-Phi(Delta_i)
-```
-
-3. Estimate marginal fresh utility:
+The first implementation can be greedy over marginal goodput:
 
 ```text
-Delta_i(S) =
-  U_i'(bar_y_i) *
-  [hat_mu_i(S + 1, xi_i, pi_i) - hat_mu_i(S, xi_i, pi_i)] *
-  Phi(Delta_i)
+M_i = best_gain_i(next S_i) - best_gain_i(current S_i)
 ```
 
-4. Greedily allocate verifier budget units to the highest marginal fresh utility.
-
-5. Update service estimates from observed accepted suffix lengths, cache hits, and verifier times.
-
-Possible names:
-
-- FUSION: Fresh Unified Speculative Inference schedulON.
-- FUSE: Fresh Unified Speculative Expansion.
-- UBS: Unified Budget Scheduling.
-
-Use a restrained name unless the acronym genuinely helps.
+but the actual feasibility check must be based on the resulting `k_i`, not on
+`S_i` itself.
 
 ## 6. Baselines
 
 Minimum baselines:
 
-- Static equal budget.
-- Linear speculative budget scheduler.
-- GoodSpeed-style goodput scheduler.
-- G-FAST-style freshness scheduler.
-- Unified scheduler without freshness.
-- Unified scheduler with freshness.
+- Equal `k` allocation.
+- Linear budget scheduler with `S_i = k_i`.
+- Fixed shape scheduler, e.g. always `(k=6, f=3)`.
+- Rule-based `S_i -> (k_i, f_i)` split.
+- Oracle table over measured `(k, f)` profiles.
 
 Useful ablations:
 
-- No frontier state.
-- No cache-hit signal.
-- No online adaptation.
-- Oracle service curve.
-- Miscalibrated service curve.
-
-Important:
-
-The strongest baseline is probably a G-FAST-like freshness scheduler using the best linear service estimate. We must beat that, not only equal allocation.
+- No fan-out choice.
+- No draft-side cost constraint.
+- Homogeneous versus heterogeneous `c_i`.
+- Hand-written curves versus empirical profiles.
 
 ## 7. Metrics
 
-Primary metric:
+Primary metrics:
 
-- Fresh accepted utility.
+- Realized goodput.
+- Accepted tokens per verifier second.
+- Accepted tokens per draft-cost proxy.
 
 Secondary metrics:
 
-- Accepted tokens per verifier second.
-- Accepted tokens per verifier budget.
-- Mean and tail freshness age.
-- Final backlog.
-- Jain fairness over per-client utility.
-- Allocation reversal rate.
-- Marginal curve reversal rate.
-- Wasted verifier budget.
-- Cache hit rate.
-- Accepted suffix length on hit and miss.
-
-For top-tier credibility, every gain should be connected to one of:
-
-- better verifier efficiency;
-- lower staleness;
-- lower backlog;
-- better fairness at comparable throughput.
+- accepted suffix length;
+- cache hit rate;
+- verifier budget utilization;
+- drafter budget utilization;
+- wasted branching work;
+- allocation reversal rate;
+- fairness across clients.
 
 ## 8. Risks and Kill Criteria
 
-### Risk 1: Real SSD curves look almost linear
-
-Consequence:
-
-The unified-budget framing becomes weak.
+### Risk 1: `S_i` remains too abstract
 
 Mitigation:
 
-- Test diverse datasets and speculative shapes.
-- Look for heterogeneity across workloads, not only average gain.
+- Always define an explicit `pi_i(S_i, xi_i)`.
+- Include both rule-based and cost-aware policies.
 
 Kill criterion:
 
-If real SSD service curves do not produce allocation reversals in any realistic regime, the top-tier version should be abandoned or reframed.
+If no simple policy can make `S_i` operational, remove `S_i` and formulate the
+scheduler directly over `(k_i, f_i)`.
 
-### Risk 2: Gains are too small
-
-Consequence:
-
-The paper may read as a modeling refinement with limited practical value.
+### Risk 2: Real SSD cost is not captured by simple `g_i`
 
 Mitigation:
 
-- Focus on high-load, freshness-sensitive, heterogeneous-client regimes.
-- Use accepted utility and latency/freshness metrics, not only throughput.
+- Start with `a_i k_i + b_i k_i f_i`.
+- Add measured lookup tables if the linear-plus-interaction model is too weak.
 
 Kill criterion:
 
-If calibrated trace-driven gains stay below roughly 3-5% and are not robust, the result is probably not enough for a systems/ML top-tier paper.
+If measured cost is too noisy to model or predict, keep the work as an empirical
+trace scheduler rather than a clean theory paper.
 
-### Risk 3: The scheduler is just an oracle over fitted curves
-
-Consequence:
-
-Reviewers may say the algorithm assumes the hard part away.
+### Risk 3: Scheduling gains are small
 
 Mitigation:
 
-- Use online estimation.
-- Include miscalibration and cold-start experiments.
-- Show the scheduler adapts from observable engine metrics.
+- Focus on heterogeneous workloads and constrained drafter regimes.
+- Report when the two-level model collapses back to the linear baseline.
 
-### Risk 4: Real online implementation becomes too expensive
+Kill criterion:
 
-Consequence:
-
-Engineering can consume the project.
-
-Mitigation:
-
-- Use trace-driven evaluation first.
-- Only implement real online scheduling if the trace-driven story is already strong.
-
-## 9. Near-Term Checklist
-
-Next 1 week:
-
-- Write `paper/problem_statement.md`.
-- Add structural separation experiment in `sim/experiments/`.
-- Add plotting/export for marginal service curves.
-- Decide exact real-run metrics schema.
-
-Next 2-3 weeks:
-
-- Patch `bench/bench.py` to export SSD metrics.
-- Run Qwen3-8B/Qwen3-0.6B calibration matrix.
-- Fit first empirical service profiles.
-- Replace or augment hand-designed simulator curves with empirical profiles.
-
-Next 4-6 weeks:
-
-- Implement trace-driven evaluation.
-- Add GoodSpeed/G-FAST-style baselines.
-- Run full sweeps and ablations.
-- Draft theorem and proof sketch.
-
-Next 6-8 weeks:
-
-- Freeze main claims.
-- Produce paper figures.
-- Write the first full draft.
-- Identify weak claims and remove them.
-
-## 10. Immediate Recommendation
-
-The most important next step is **not** to build a full online serving system.
-
-The most important next step is to close the evidence loop:
-
-```text
-real SSD metrics -> calibrated service curves -> trace-driven scheduling gains
-```
-
-Once that loop exists, we can judge whether this is a top-tier paper, a workshop paper, or a useful internal research note.
-
-Right now, the project is promising because the abstraction is sharp and the toy simulator already shows structural mismatch. It is not yet top-tier-ready because the central service model is not empirically grounded.
+If calibrated curves never change allocation decisions in realistic regimes, the
+top-level claim should be reframed or abandoned.
