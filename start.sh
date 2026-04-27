@@ -95,6 +95,17 @@ test -x "$VENV_DIR/bin/python" || {
   echo "Expected virtualenv at $VENV_DIR but it was not created" >&2
   exit 1
 }
+"$VENV_DIR/bin/python" - <<'PY'
+import importlib.util
+
+missing = [
+    package
+    for package in ("pandas", "matplotlib", "scipy")
+    if importlib.util.find_spec(package) is None
+]
+if missing:
+    raise SystemExit(f"Missing analysis dependencies after uv sync: {', '.join(missing)}")
+PY
 download_models
 
 models=(
@@ -121,4 +132,6 @@ Next steps:
   source "$VENV_DIR/bin/activate"
   cd "$ROOT_DIR/bench"
   python -O bench.py --qwen --size 8 --b 1 --temp 0 --numseqs 8 --output_len 64
+  cd "$ROOT_DIR"
+  python -m sim.experiments.block1_validate
 EOF
