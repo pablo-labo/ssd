@@ -13,6 +13,7 @@ SUMMARY_FIELDS = [
     "shape_mode",
     "k",
     "f",
+    "fanout_budget",
     "fan_out_list_hit",
     "fan_out_list_miss",
     "batch_size",
@@ -38,6 +39,9 @@ GROUP_FIELDS = [
     "shape_mode",
     "k",
     "f",
+    "fanout_budget",
+    "fan_out_list_hit",
+    "fan_out_list_miss",
     "runs",
     "total_spec_steps",
     "avg_suffix_mean",
@@ -89,7 +93,24 @@ def _row(record):
     row["f"] = shape.get("f", record.get("f"))
     row["fan_out_list_hit"] = shape.get("fan_out_list_hit", record.get("fan_out_list_hit"))
     row["fan_out_list_miss"] = shape.get("fan_out_list_miss", record.get("fan_out_list_miss"))
+    row["fanout_budget"] = _fanout_budget(row["fan_out_list_hit"], row["k"], row["f"])
     return row
+
+
+def _fanout_budget(fanout_list, k, f):
+    if isinstance(fanout_list, list):
+        return sum(int(value) for value in fanout_list)
+    if fanout_list:
+        try:
+            values = [int(item) for item in str(fanout_list).replace(",", " ").strip("[]").split()]
+        except ValueError:
+            values = []
+        if values:
+            return sum(values)
+    try:
+        return (int(k) + 1) * int(f)
+    except (TypeError, ValueError):
+        return None
 
 
 def _format_value(value):
@@ -152,6 +173,9 @@ def _group_key(row):
         row.get("shape_mode"),
         row.get("k"),
         row.get("f"),
+        _format_value(row.get("fanout_budget")),
+        _format_value(row.get("fan_out_list_hit")),
+        _format_value(row.get("fan_out_list_miss")),
     )
 
 
@@ -161,13 +185,16 @@ def build_group_rows(rows):
         groups.setdefault(_group_key(row), []).append(row)
 
     group_rows = []
-    for (model_name, dataset, shape_mode, k, f), items in groups.items():
+    for (model_name, dataset, shape_mode, k, f, fanout_budget, fan_out_list_hit, fan_out_list_miss), items in groups.items():
         group_rows.append({
             "model_name": model_name,
             "dataset": dataset,
             "shape_mode": shape_mode,
             "k": k,
             "f": f,
+            "fanout_budget": fanout_budget,
+            "fan_out_list_hit": fan_out_list_hit,
+            "fan_out_list_miss": fan_out_list_miss,
             "runs": len(items),
             "total_spec_steps": sum(int(_numeric(item.get("metrics_spec_steps")) or 0) for item in items),
             "avg_suffix_mean": _mean(item.get("metrics_avg_accepted_suffix_lens_with_recovery") for item in items),
@@ -190,6 +217,7 @@ def build_group_rows(rows):
         row.get("dataset") or "",
         row.get("shape_mode") or "",
         row.get("k") if row.get("k") is not None else -1,
+        row.get("fanout_budget") if row.get("fanout_budget") is not None else -1,
         row.get("f") if row.get("f") is not None else -1,
     ))
     return group_rows
@@ -212,6 +240,9 @@ def write_profile_json(path, group_rows):
             "shape_mode": row.get("shape_mode"),
             "k": row.get("k"),
             "f": row.get("f"),
+            "fanout_budget": row.get("fanout_budget"),
+            "fan_out_list_hit": row.get("fan_out_list_hit"),
+            "fan_out_list_miss": row.get("fan_out_list_miss"),
             "runs": row.get("runs"),
             "total_spec_steps": row.get("total_spec_steps"),
             "metrics": {
