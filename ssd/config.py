@@ -64,10 +64,12 @@ class Config:
             if self.draft_async:
                 if self.fan_out_list is None: 
                     self.fan_out_list = [self.async_fan_out] * (self.speculate_k + 1)
-                    self.MQ_LEN = sum(self.fan_out_list)
                 if self.fan_out_list_miss is None:
                     self.fan_out_list_miss = self.fan_out_list 
+                assert len(self.fan_out_list) == self.speculate_k + 1, "ERROR in Config: fan_out_list must be length speculate_k + 1"
+                assert len(self.fan_out_list_miss) == self.speculate_k + 1, "ERROR in Config: fan_out_list_miss must be length speculate_k + 1"
                 assert sum(self.fan_out_list_miss) == sum(self.fan_out_list), "ERROR in Config: fan_out_list_miss must be the same as fan_out_list"
+                self.MQ_LEN = sum(self.fan_out_list)
                 
         if self.use_eagle:
             if self.eagle_layers is None:

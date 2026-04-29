@@ -131,7 +131,6 @@ class ModelRunner:
             assert len(self.config.fan_out_list) == self.config.speculate_k + \
                 1, "ERROR in Config: fan_out_list must be length speculate_k + 1"
             assert any(f > 0 for f in self.config.fan_out_list), "ERROR in Config: fan_out_list must be > 0"
-            self.config.MQ_LEN = sum(self.config.fan_out_list)
             print(f'F={self.config.async_fan_out}, fan_out_list={self.config.fan_out_list}, fan_out_list_miss={self.config.fan_out_list_miss}, MQ_LEN={self.config.MQ_LEN}', flush=True)
 
         if should_use_dist: # (draft model when async=False or just single gpu logic) doesn't even enter this loop 
