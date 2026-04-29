@@ -171,7 +171,7 @@ class ModelRunner:
             # pages_for_max_len = (self.config.max_model_len + self.block_size - 1) // self.block_size
             last_page_len_max_len = self.config.max_model_len % self.block_size
             last_page_len_max_len = self.block_size if last_page_len_max_len == 0 else last_page_len_max_len
-            MQ_LEN = self.config.async_fan_out * (self.config.speculate_k + 1)
+            MQ_LEN = self.config.MQ_LEN
             
             cu_seqlens_q = torch.empty(max_bs + 1, dtype=torch.int32, device=self.device)
             kv_indptr = torch.empty(max_bs + 1, dtype=torch.int32, device=self.device)
@@ -498,8 +498,10 @@ class ModelRunner:
                 module.v_cache = self.kv_cache[1, layer_id]
                 if self.is_draft and self.draft_async and not self.enforce_eager:
                     module.prefill_wrappers = self.prefill_wrappers
+                    module.MQ_LEN = self.config.MQ_LEN
                 elif self.is_draft and self.draft_async and self.enforce_eager:
                     module.only_prefill_wrapper = self.only_prefill_wrapper # this will make it not None so it can be used on fwd
+                    module.MQ_LEN = self.config.MQ_LEN
                 layer_id += 1
 
     
@@ -679,4 +681,3 @@ class ModelRunner:
                 return logits, conditioning
             return logits
     
-

@@ -68,6 +68,7 @@ class Attention(nn.Module):
         self.prefill_wrappers = {}
         self.F = F # async_fan_out
         self.K = K # speculate_k
+        self.MQ_LEN = F * (K + 1)
         self.only_prefill_wrapper = None
 
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
@@ -114,13 +115,18 @@ class Attention(nn.Module):
                 if self.only_prefill_wrapper is not None:
                     prefill_wrapper = self.only_prefill_wrapper
                 else:
-                    mq_len = self.F * (self.K+1)
-                    bs = q.shape[0] // mq_len
+                    bs = q.shape[0] // self.MQ_LEN
                     wrapper_bs = None
                     for available_bs in sorted(self.prefill_wrappers.keys()):
                         if available_bs >= bs:
                             wrapper_bs = available_bs
                             break
+                    if wrapper_bs is None:
+                        raise RuntimeError(
+                            "No FlashInfer prefill wrapper bucket can serve "
+                            f"batch_size={bs}; available={sorted(self.prefill_wrappers.keys())}; "
+                            f"flat_q={q.shape[0]}, MQ_LEN={self.MQ_LEN}"
+                        )
                     prefill_wrapper = self.prefill_wrappers[wrapper_bs]
                 o = prefill_wrapper.run(q, (self.k_cache, self.v_cache))
             else: # single query decode
