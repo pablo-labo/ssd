@@ -7,6 +7,10 @@ MODEL_ROOT="${MODEL_ROOT:-$ROOT_DIR/models}"
 HF_HOME_DIR="${HF_HOME_DIR:-$MODEL_ROOT/huggingface}"
 HF_HUB_DIR="${HF_HUB_DIR:-$HF_HOME_DIR/hub}"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
+MODELS=(
+  "Qwen/Qwen3-8B"
+  "Qwen/Qwen3-0.6B"
+)
 
 mkdir -p "$HF_HUB_DIR"
 
@@ -18,6 +22,11 @@ ensure_uv() {
   if command -v uv >/dev/null 2>&1; then
     return
   fi
+
+  command -v curl >/dev/null 2>&1 || {
+    echo "uv is not installed and curl is unavailable, so automatic uv install cannot proceed" >&2
+    exit 1
+  }
 
   curl -LsSf https://astral.sh/uv/install.sh | sh
 
@@ -43,7 +52,7 @@ verify_model_snapshot() {
     return 1
   fi
 
-  snapshot_dir="$(find "$cache_base" -maxdepth 3 -type f -name config.json -print -quit 2>/dev/null || true)"
+  snapshot_dir="$(find "$cache_base" -maxdepth 3 -name config.json -print -quit 2>/dev/null || true)"
   if [[ -z "$snapshot_dir" ]]; then
     echo "Model snapshot incomplete for $repo_id: no config.json found under $cache_base" >&2
     return 1
@@ -53,16 +62,12 @@ verify_model_snapshot() {
 }
 
 download_models() {
-  . "$VENV_DIR/bin/activate"
-  python - <<'PY'
+  "$VENV_DIR/bin/python" - <<'PY'
 from huggingface_hub import snapshot_download
 import os
 
 cache_dir = os.environ["SSD_HF_CACHE"]
-models = [
-    "Qwen/Qwen3-8B",
-    "Qwen/Qwen3-0.6B",
-]
+models = os.environ["SSD_START_MODELS"].splitlines()
 
 for repo_id in models:
     print(f"Downloading {repo_id} into {cache_dir}...")
@@ -95,6 +100,7 @@ test -x "$VENV_DIR/bin/python" || {
   echo "Expected virtualenv at $VENV_DIR but it was not created" >&2
   exit 1
 }
+export SSD_START_MODELS="$(printf '%s\n' "${MODELS[@]}")"
 "$VENV_DIR/bin/python" - <<'PY'
 import importlib.util
 
@@ -108,17 +114,22 @@ if missing:
 PY
 download_models
 
-models=(
-  "Qwen/Qwen3-8B"
-  "Qwen/Qwen3-0.6B"
-)
-
-for repo_id in "${models[@]}"; do
+for repo_id in "${MODELS[@]}"; do
   if ! verify_model_snapshot "$repo_id"; then
     print_retry_hint "$repo_id"
     exit 1
   fi
 done
+
+dataset_hint='  export SSD_DATASET_DIR=/path/to/processed_datasets'
+if [[ -n "${SSD_DATASET_DIR:-}" ]]; then
+  dataset_hint="  export SSD_DATASET_DIR=\"$SSD_DATASET_DIR\""
+fi
+
+cuda_hint='  export SSD_CUDA_ARCH=<your GPU arch>  # 9.0=H100/H200, 8.0=A100, 8.9=L40/4090'
+if [[ -n "${SSD_CUDA_ARCH:-}" ]]; then
+  cuda_hint="  export SSD_CUDA_ARCH=\"$SSD_CUDA_ARCH\""
+fi
 
 cat <<EOF
 Setup complete.
@@ -130,6 +141,8 @@ Downloaded models:
 
 Next steps:
   source "$VENV_DIR/bin/activate"
+${dataset_hint}
+${cuda_hint}
   cd "$ROOT_DIR/bench"
   python -O bench.py --qwen --size 8 --b 1 --temp 0 --numseqs 8 --output_len 64
   cd "$ROOT_DIR"
