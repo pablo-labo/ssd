@@ -18,6 +18,31 @@ export HF_HOME="$HF_HOME_DIR"
 export SSD_HF_CACHE="$HF_HUB_DIR"
 export UV_PROJECT_ENVIRONMENT="$VENV_DIR"
 
+ensure_system_packages() {
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    return
+  fi
+
+  if ! command -v apt-get >/dev/null 2>&1; then
+    return
+  fi
+
+  local missing_packages=()
+  local package
+  for package in libnuma1 numactl; do
+    if ! dpkg -s "$package" >/dev/null 2>&1; then
+      missing_packages+=("$package")
+    fi
+  done
+
+  if [[ ${#missing_packages[@]} -eq 0 ]]; then
+    return
+  fi
+
+  apt-get update
+  apt-get install -y "${missing_packages[@]}"
+}
+
 ensure_uv() {
   if command -v uv >/dev/null 2>&1; then
     return
@@ -94,6 +119,7 @@ PY
 EOF
 }
 
+ensure_system_packages
 ensure_uv
 uv sync --extra scripts
 test -x "$VENV_DIR/bin/python" || {
