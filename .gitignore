@@ -37,6 +37,7 @@ wandb/
 wandb_runs/
 bench/tmp*/
 bench/results/
+sim/experiments/results/block1_validate/curves.csv
 plots/
 profile/
 summaries/
