@@ -1,367 +1,277 @@
-# Toward a Paper: Execution Plan
+# Multi-Client SSD Scheduling: Execution Plan
 
 ## 0. Current Position
 
-This project is at the problem-framing plus early-simulator stage.
+This project is now centered on the thesis stated in:
 
-What we already have:
+- `paper/proposal_cn.md`
+- `paper/proposal_en.md`
+- `paper/math_roadmap_v2.pdf`
+- `paper/idea.md`
 
-- A working SSD codebase and benchmark harness.
-- A deterministic scheduling simulator in `sim/`.
-- Initial real async SSD shape measurements over several `(k, f)` settings.
-- A previous unified-budget framing in `paper/idea.md`.
+Older material built around "real-LLM calibration first" or a two-level
+`S_i -> (k_i, f_i)` scheduler is no longer the active direction.
 
-The framing has now changed in an important way:
+The active framing is:
 
-- Old version: treat `S_i` as a unified verifier-side speculative budget.
-- New version: treat `S_i` as an upper-level scheduler signal, then map it
-  through a client policy into physical actions `(k_i, f_i)`.
+- decision variable: verifier-side lookahead `k_i`;
+- implicit coupled variable: drafter budget `B_i({k_j})`;
+- objective: analyze the resulting SSD service curve and multi-client
+  allocation structure;
+- method: theory first, simulator second, paper-based calibration third.
 
-This avoids forcing one variable to mean linear length, tree size, verifier work,
-and drafter work at the same time.
+The thesis does not require a real multi-client SSD system implementation in
+its core path.
 
 ## 1. Target Thesis
 
-The paper should be framed around the verifier/drafter split, not around
-deadline or age-aware serving objectives. Those can remain future work.
+The paper should be framed around the structural gap between:
 
-The thesis should be:
+- GoodSpeed: multi-client speculative decoding with monotone service in `k_i`;
+- Saguaro: single-client SSD with fixed `k` and optimized fan-out shape.
 
-> In multi-client SSD serving, the traditional linear speculative-budget
-> abstraction is too coarse because verifier and drafter bottlenecks act on
-> different physical variables. The verifier sees a global linear lookahead
-> constraint over `k_i`, while each drafter has a local compute/latency constraint
-> over the chosen `(k_i, f_i)` frontier shape. We introduce a two-level scheduling
-> model where the scheduler emits an abstract signal `S_i`, and each client maps
-> it to executable SSD actions `(k_i, f_i)` under both constraints.
+The key thesis is:
 
-The contribution stack should be:
+> In multi-client SSD serving, the effective service curve is no longer a
+> monotone function of verifier lookahead alone. Because each client's drafter
+> budget is induced by shared verifier wall time, the service curve becomes
+> non-monotone in `k_i` and non-locally coupled across clients. This creates
+> positive externalities, possible allocation reversal relative to GoodSpeed,
+> and potentially non-binding verifier optima.
 
-1. **Problem abstraction**
-   - Define the two-level control model: scheduler signal `S_i`, execution actions
-     `(k_i, f_i)`.
-   - Separate global verifier constraint from local drafter constraint.
+## 2. Core Scientific Questions
 
-2. **Cost and service model**
-   - Define `g_i(k_i, f_i; xi_i) <= c_i` for draft-side feasibility.
-   - Define `mu_i^SSD(k_i, f_i, xi_i)` for realized goodput.
-   - Start with a simple model such as `g_i = a_i k_i + b_i k_i f_i`.
+### Q1. Single-client structure
 
-3. **Structural result**
-   - Show that linear `S_i -> k_i` scheduling can misallocate when clients have
-     different draft-side costs or depth-width efficiencies.
+Does `tilde(mu)_SSD(k)` exhibit the predicted unimodal shape, and how does the
+internal optimum `k*` move with `alpha`, `r`, `a`, `b`, and `T_V`?
 
-4. **Empirical validation**
-   - Calibrate `g_i` and `mu_i^SSD` from real SSD `(k, f)` shape runs.
-   - Evaluate whether the calibrated curves induce allocation reversals or
-     measurable goodput gains in multi-client scheduling.
+### Q2. Multi-client coupling
 
-## 2. Main Scientific Questions
+When `B_i` is written as a function of all lookaheads `{k_j}`, does the KKT
+system expose the predicted positive externality term?
 
-### Q1. What is the right physical constraint?
+### Q3. Allocation reversal
 
-Expected answer:
+Is there a non-trivial parameter region `R` where GoodSpeed's preferred
+allocation order differs from the SSD-aware optimum?
 
-The verifier-side constraint is:
+### Q4. Non-binding verifier regime
 
-```text
-sum_i k_i <= C
-```
+Are there meaningful parameter settings where the SSD-aware optimum satisfies
+`sum_i k_i < C`?
 
-not `sum_i S_i <= C`.
+## 3. Experimental Strategy
 
-`S_i` is retained as an abstract scheduling signal, but the verifier physically
-executes `k_i`.
+The experiment stack has three layers:
 
-### Q2. What constrains fan-out?
+1. symbolic and numerical sanity checks for the mathematical model;
+2. deterministic simulator experiments on synthetic parameter grids;
+3. realistic-parameter reruns calibrated from published Saguaro figures and
+   appendix data.
 
-Expected answer:
+Real online serving experiments are not a core dependency for this thesis.
 
-Fan-out is constrained by the drafter's local compute and latency window:
+## 4. Experiment Blocks
 
-```text
-g_i(k_i, f_i; xi_i) <= c_i
-```
+### Block A. Single-Client Shape Validation
 
-This is the part missing from a pure linear-budget model.
+Goal:
 
-### Q3. How does `S_i` affect execution?
+- validate the Block 1 claim that `tilde(mu)_SSD(k)` is unimodal;
+- estimate `k*`;
+- verify monotonicity trends of `k*`.
 
-Expected answer:
+Model:
 
-Through a client policy:
+- use Saguaro's geometric fan-out and power-law cache-hit assumptions;
+- use `B(k) = floor((T_V - a k) / (b k))_+`;
+- start with constant timing simplifications:
+  - `E_miss ~= 1`
+  - hit latency normalized to `1`
+  - miss latency `1 + T_b`
 
-```text
-(k_i, f_i) = pi_i(S_i, xi_i)
-```
+Outputs:
 
-The paper must give at least one executable policy. The best first version is
-cost-aware:
+- `mu(k)` curves;
+- `k*` heatmaps;
+- a table of non-unimodal or degenerate cases.
 
-```text
-(k_i, f_i) = argmax mu_i^SSD(k, f, xi_i)
-subject to g_i(k, f; xi_i) <= h_i(S_i, c_i)
-```
+Gate A:
 
-### Q4. Does this change scheduling decisions?
+- if most valid curves are unimodal, proceed;
+- otherwise revise the service model before moving on.
 
-Expected answer:
+### Block B. Two-Client KKT and Externality Validation
 
-It should, in heterogeneous regimes. A client with high linear acceptance but
-poor fan-out efficiency may receive less useful service than a client with lower
-linear acceptance but better `(k, f)` frontier efficiency.
+Goal:
 
-The minimum required evidence is a clean two-client allocation reversal.
+- numerically verify the sign and scale of the externality term;
+- separate own direct effect, own indirect effect, and cross-client effect.
 
-## 3. Evidence Ladder
+Setup:
 
-### Level 1: Problem statement
+- two clients;
+- shared verifier budget `k_1 + k_2 <= C`;
+- objective `log mu_1 + log mu_2`.
 
-Status: in progress.
+Outputs:
 
-Deliverable:
+- finite-difference sign checks for `partial mu_j / partial k_i`;
+- representative sign maps over `(k_1, k_2)`;
+- one figure illustrating binding versus non-binding regimes.
 
-- `paper/idea.md` rewritten around two-level control.
+Gate B:
 
-Acceptance criteria:
+- if the cross term is positive and material in the intended regime, proceed;
+- otherwise weaken the paper toward a single-client structural result.
 
-- `S_i`, `k_i`, and `f_i` have distinct meanings.
-- The constraints are explicit.
-- No deadline or age-aware serving objective is needed for the core story.
+### Block C. Allocation-Reversal Mapping
 
-### Level 2: Toy structural simulator
+Goal:
 
-Status: current simulator exists, but its variable semantics need updating.
+- test the central claim that allocation ordering can reverse relative to
+  GoodSpeed.
 
-Immediate change:
+Setup:
 
-- Scheduler emits `S_i`.
-- Client policy maps `S_i` to `(k_i, f_i)`.
-- Environment enforces `sum k_i <= C`.
-- Client feasibility uses `g_i(k_i, f_i; xi_i) <= c_i`.
-- Service is `mu_i^SSD(k_i, f_i, xi_i)`.
+- compare GoodSpeed allocation `k^GS` with SSD-aware optimum `k*`;
+- scan two-client parameter grids over `(alpha_1, alpha_2)`, `(b_1, b_2)`, and
+  later `r_i`.
 
-Acceptance criteria:
+Metrics:
 
-- We can run linear `S_i -> k_i` baseline.
-- We can run rule-based and cost-aware `(k_i, f_i)` policies.
-- We can plot marginal service curves over `k` and `f`.
+- reversal indicator;
+- utility gap `U(k*) - U(k^GS)`;
+- reversal-region size under the scanned distribution.
 
-### Level 3: Structural separation
+Outputs:
 
-Status: missing.
+- reversal heatmaps;
+- utility-gap heatmaps;
+- a canonical two-client reversal case.
 
-Minimum theorem or proposition:
+Gate C:
 
-There exist two clients A and B such that:
+- if reversal region is non-trivial, it becomes the signature result;
+- if reversal exists but is tiny, it becomes supporting evidence rather than the
+  headline claim.
 
-```text
-alpha_A > alpha_B
-```
+### Block D. Non-Binding Verifier Regime
 
-so a linear scheduler prefers A, but under SSD-aware execution:
+Goal:
 
-```text
-Delta_B^SSD(k, f, xi_B) > Delta_A^SSD(k, f, xi_A)
-```
+- test whether the SSD-aware optimum can satisfy `sum_i k_i < C`.
 
-for the relevant budget range, so the optimal allocation prefers B.
+Metrics:
 
-This only needs to be a small finite-action result. The goal is to formalize the
-resource mismatch, not to prove a grand asymptotic theorem.
+- fraction of regimes with positive slack;
+- average slack when slack is positive;
+- utility difference between unconstrained-up-to-`C` and forced-binding
+  optimization.
 
-### Level 4: Real SSD calibration
+This is a stretch result, not a dependency for the paper's core story.
 
-Status: early measurements exist.
+### Block E. N-Client Simulator
 
-Needed measurements:
+Goal:
 
-- `(k, f)` shape.
-- accepted suffix length.
-- cache hit rate.
-- draft-side timing or proxy.
-- target verify time.
-- accepted tokens per verifier second.
-- accepted tokens per draft-cost proxy.
+- show that the structural effect persists beyond hand-picked two-client cases.
 
-First fitting target:
+Setup:
 
-```text
-g_i(k, f) = a_i k + b_i k f
-mu_i^SSD(k, f, xi_i) = empirical goodput table or smooth fit
-```
+- `N in {4, 8, 16}`;
+- parameters sampled from synthetic distributions first;
+- compare GoodSpeed-style monotone allocation, equal split, and SSD-aware
+  heuristic or oracle allocations.
 
-Acceptance criteria:
+Role:
 
-- Different `(k, f)` shapes produce measurably different cost-service tradeoffs.
-- The fitted curves are non-linear enough to affect scheduler decisions.
+- supporting evidence only;
+- the main structural story should remain in 2-client form.
 
-### Level 5: Trace-driven evaluation
+### Block F. Realistic-Parameter Calibration from Published Saguaro Data
 
-Status: missing.
+Goal:
 
-Minimum viable version:
+- move from synthetic scans to realistic parameter ranges without making new
+  real-LLM collection a prerequisite.
 
-- Use calibrated shape profiles from real SSD runs.
-- Create heterogeneous client classes with different `a_i`, `b_i`, and service
-  curves.
-- Compare:
-  - equal allocation;
-  - linear `S_i -> k_i` scheduler;
-  - fixed-shape SSD scheduler;
-  - two-level SSD-aware scheduler.
+Data source:
 
-Acceptance criteria:
+- published Saguaro figures;
+- appendix timing data;
+- coarse extraction of empirical ranges for `alpha`, `r`, verifier wall-time
+  scale, and drafter timing proxies.
 
-- Show where two-level scheduling helps.
-- Show where it does not help.
-- Connect wins to draft-side cost or depth-width efficiency, not to arbitrary
-  simulator knobs.
+Outputs:
 
-## 4. Concrete Work Plan
+- calibrated parameter table;
+- synthetic-versus-calibrated comparison plots;
+- final decision on whether the reversal story survives realistic settings.
 
-### Phase A: Clean notation and docs
+Gate F:
 
-Deliverables:
+- if reversal survives, keep the positive-result framing;
+- otherwise pivot to a structural-limits or negative-result framing.
 
-- Rewritten `paper/idea.md`.
-- A one-page problem statement.
-- Figure sketch:
-  - top: old linear chain, `S_i = k_i`;
-  - middle: SSD frontier with `(k_i, f_i)`;
-  - bottom: two constraints, `sum k_i <= C` and `g_i <= c_i`.
+## 5. Concrete Deliverables
 
-### Phase B: Update simulator semantics
+Minimum deliverables:
 
-Deliverables:
+- a technical note for Block A and Block B formulas;
+- one script for single-client unimodality scans;
+- one script for two-client KKT and reversal scans;
+- one script for calibrated reruns using paper-derived parameter ranges;
+- one summary table of all gate decisions.
 
-- `ClientPolicy` returns `(k, f)` instead of direct service.
-- `DrafterCostModel` abstraction.
-- `VerifierBudgetProjector` or equivalent feasibility check for `sum k_i <= C`.
-- Baselines:
-  - linear length baseline;
-  - rule-based depth/width split;
-  - cost-aware policy.
+Nice-to-have deliverables:
 
-### Phase C: Add structural experiment
+- a lightweight `N`-client heuristic scheduler demo;
+- a robustness appendix for `T_V(k) = T_0 + tau k`;
+- a short note on conditions for non-binding verifier optima.
 
-Deliverables:
+## 6. Execution Order
 
-- Two-client separation script.
-- Marginal curve plot over budget units.
-- Table showing allocation reversal.
+Week 1:
 
-### Phase D: Calibrate from real runs
+- finalize notation;
+- implement Block A scans;
+- run Gate A.
 
-Deliverables:
+Week 2:
 
-- Shape grid summary over `(k, f)`.
-- Fit or table for `g_i`.
-- Fit or table for `mu_i^SSD`.
-- Sensitivity over workload classes if data is available.
+- implement Block B and Block C;
+- produce first reversal maps;
+- run Gate C.
 
-### Phase E: Paper skeleton
+Week 3:
 
-Sections:
+- implement Block D and lightweight Block E;
+- stabilize core figures and notes.
 
-- Introduction.
-- Background: speculative decoding and SSD.
-- Why linear budget fails.
-- Two-level system model.
-- Structural separation.
-- Scheduler policy.
-- Calibration and evaluation.
-- Limitations.
+Week 4:
 
-## 5. Scheduler Design Direction
+- calibrate from published Saguaro data;
+- rerun core scans;
+- decide between:
+  - positive reversal framing;
+  - negative-result structural framing.
 
-Start with a conservative algorithm:
+## 7. Kill Criteria
 
-1. For each client and candidate scheduling signal `S`, enumerate feasible
-   `(k, f)` actions.
-2. Remove actions violating `g_i(k, f; xi_i) <= h_i(S_i, c_i)`.
-3. Estimate `mu_i^SSD(k, f, xi_i)` from a table or fitted curve.
-4. Choose the best local action for each candidate `S`.
-5. Allocate across clients while respecting `sum_i k_i <= C`.
+### Risk 1. Unimodality is not robust
 
-The first implementation can be greedy over marginal goodput:
+If `tilde(mu)_SSD(k)` is often bimodal or monotone in the intended parameter
+range, revise the service model before pushing further.
 
-```text
-M_i = best_gain_i(next S_i) - best_gain_i(current S_i)
-```
+### Risk 2. Externality is negligible
 
-but the actual feasibility check must be based on the resulting `k_i`, not on
-`S_i` itself.
+If the cross-client term is numerically tiny in realistic settings, reduce the
+paper to a single-client or weak-coupling structural result.
 
-## 6. Baselines
+### Risk 3. Reversal region is too small
 
-Minimum baselines:
-
-- Equal `k` allocation.
-- Linear budget scheduler with `S_i = k_i`.
-- Fixed shape scheduler, e.g. always `(k=6, f=3)`.
-- Rule-based `S_i -> (k_i, f_i)` split.
-- Oracle table over measured `(k, f)` profiles.
-
-Useful ablations:
-
-- No fan-out choice.
-- No draft-side cost constraint.
-- Homogeneous versus heterogeneous `c_i`.
-- Hand-written curves versus empirical profiles.
-
-## 7. Metrics
-
-Primary metrics:
-
-- Realized goodput.
-- Accepted tokens per verifier second.
-- Accepted tokens per draft-cost proxy.
-
-Secondary metrics:
-
-- accepted suffix length;
-- cache hit rate;
-- verifier budget utilization;
-- drafter budget utilization;
-- wasted branching work;
-- allocation reversal rate;
-- fairness across clients.
-
-## 8. Risks and Kill Criteria
-
-### Risk 1: `S_i` remains too abstract
-
-Mitigation:
-
-- Always define an explicit `pi_i(S_i, xi_i)`.
-- Include both rule-based and cost-aware policies.
-
-Kill criterion:
-
-If no simple policy can make `S_i` operational, remove `S_i` and formulate the
-scheduler directly over `(k_i, f_i)`.
-
-### Risk 2: Real SSD cost is not captured by simple `g_i`
-
-Mitigation:
-
-- Start with `a_i k_i + b_i k_i f_i`.
-- Add measured lookup tables if the linear-plus-interaction model is too weak.
-
-Kill criterion:
-
-If measured cost is too noisy to model or predict, keep the work as an empirical
-trace scheduler rather than a clean theory paper.
-
-### Risk 3: Scheduling gains are small
-
-Mitigation:
-
-- Focus on heterogeneous workloads and constrained drafter regimes.
-- Report when the two-level model collapses back to the linear baseline.
-
-Kill criterion:
-
-If calibrated curves never change allocation decisions in realistic regimes, the
-top-level claim should be reframed or abandoned.
+If calibrated reversal regions are near-empty or the utility gap is negligible,
+reframe the paper as a negative result on the structural limits of multi-client
+SSD scheduling.

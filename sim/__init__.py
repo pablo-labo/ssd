@@ -1,2 +1,1 @@
-"""Minimal simulator package for unified speculative budget experiments."""
-
+"""Minimal simulator package for multi-client SSD scheduling experiments."""

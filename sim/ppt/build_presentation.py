@@ -98,7 +98,7 @@ SLIDE_TEXT = {
         "Title 1": ["References and Thanks"],
         "Content Placeholder 2": [
             "Papers: GoodSpeed: Optimizing Fair Goodput with Adaptive Speculative Decoding in Distributed Edge Inference; Speculative Speculative Decoding.",
-            "Project artifacts: paper/idea.md, sim/README.md, sim/guide.md, sim/experiments/repeat_bench.py.",
+            "Project artifacts: paper/idea.md, paper/plan.md, sim/README.md, sim/experiments/block1_validate.py.",
             "Bench setup: Qwen3-8B target, Qwen3-0.6B draft, 2 x RTX A4500, random prompts, numseqs=32, output_len=128.",
         ],
     },
