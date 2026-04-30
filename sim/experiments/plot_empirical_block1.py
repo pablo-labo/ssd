@@ -6,6 +6,8 @@ from pathlib import Path
 
 
 METRICS = [
+    ("decode_throughput_mean", "Decode throughput (tokens / second)"),
+    ("official_throughput_mean", "End-to-end throughput (tokens / second)"),
     ("suffix_per_verify_sec_mean", "Accepted suffix / verifier second"),
     ("decode_tokens_per_verify_sec_mean", "Decode tokens / verifier second"),
     ("avg_suffix_mean", "Accepted suffix length"),
@@ -37,12 +39,34 @@ def _print_best(rows: list[dict[str, str]]) -> None:
         if not subset:
             continue
         print(f"budget={budget:g}")
-        for metric, _ in METRICS[:2]:
+        for metric, _ in METRICS[:4]:
             valid = [row for row in subset if _float(row, metric) is not None]
             if not valid:
                 continue
             best = max(valid, key=lambda row: _float(row, metric) or float("-inf"))
             print(f"  best_{metric}: k={best.get('k')} value={_float(best, metric):.4f}")
+
+
+def _write_best_summary(rows: list[dict[str, str]], out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    budgets = sorted({_float(row, "fanout_budget") for row in rows if _float(row, "fanout_budget") is not None})
+    path = out_dir / "best_k_summary.csv"
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["fanout_budget", "metric", "best_k", "best_value"])
+        writer.writeheader()
+        for budget in budgets:
+            subset = [row for row in rows if _float(row, "fanout_budget") == budget]
+            for metric, _ in METRICS:
+                valid = [row for row in subset if _float(row, metric) is not None]
+                if not valid:
+                    continue
+                best = max(valid, key=lambda row: _float(row, metric) or float("-inf"))
+                writer.writerow({
+                    "fanout_budget": f"{budget:g}",
+                    "metric": metric,
+                    "best_k": best.get("k"),
+                    "best_value": f"{_float(best, metric):.6f}",
+                })
 
 
 def _plot(rows: list[dict[str, str]], out_dir: Path) -> None:
@@ -94,6 +118,7 @@ def main() -> None:
     if not rows:
         raise SystemExit(f"No async_ssd rows found in {args.shape_summary_csv}")
     _print_best(rows)
+    _write_best_summary(rows, out_dir)
     _plot(rows, out_dir)
     print(f"wrote={out_dir}")
 
