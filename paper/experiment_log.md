@@ -276,3 +276,121 @@ be:
 
 This supports Block 1 and justifies moving to the multi-client KKT and
 allocation-reversal analysis.
+
+## 2026-04-30: GSM8K Fine-Grained Block 1 A3 Result
+
+### Motivation
+
+After the first real-LLM A3 run, we used the measured acceptance/cache behavior
+to update the capped-geometric fan-out prior. The previous values
+`alpha=0.8, r=0.8` appeared optimistic. A rough empirical calibration from the
+Alpaca run suggested:
+
+```text
+alpha ~= 0.735
+r ~= 0.6
+```
+
+The goal of this follow-up run was to check whether the fixed-budget
+unimodality remains visible under a more realistic shape prior and a finer
+grid of `k`.
+
+### Configuration
+
+Remote run configuration:
+
+```text
+dataset: GSM8K
+model: Qwen3-8B target, Qwen3-0.6B draft
+hardware: 2 x RTX 4090
+fixed budget: B = 36
+shape prior: alpha = 0.735, r = 0.6
+k values: {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+prompt offsets: {0, 4}
+runs: 22 total
+```
+
+Each plotted point is the mean over two prompt offsets for the same `(B, k,
+fanout)` setting.
+
+The intended command shape was:
+
+```bash
+export SSD_CUDA_ARCH=8.9
+export CUDA_VISIBLE_DEVICES=0,1
+export ASYNC_GPUS=2
+export DATASET_FLAG=""
+export BUDGETS="36"
+export ALPHA="0.735"
+export R="0.6"
+export K_VALUES="2 3 4 5 6 7 8 9 10 11 12"
+export PROMPT_OFFSETS="0 4"
+export NUMSEQS=4
+export OUTPUT_LEN=64
+export INPUT_LEN=128
+export MAX_MODEL_LEN=1024
+export BLOCK_SZ=128
+export BATCH_SIZE=1
+bash scripts/run_geometric_block1_grid.sh
+```
+
+Note: use an absolute `OUT_DIR` on the remote machine. A relative `OUT_DIR`
+such as `bench/results/...` can be interpreted under `bench/` after the script
+changes directory, which places results in `bench/bench/results/...` and causes
+the final plotting step to miss `shape_summary.csv`.
+
+### Key Result
+
+The primary metric `decode_throughput_mean` shows a clear internal optimum:
+
+```text
+k=2:  about 94 tokens/s
+k=3:  about 110 tokens/s
+k=4:  about 129 tokens/s
+k=5:  about 140 tokens/s  <-- best observed point
+k=6:  about 130 tokens/s
+k=7:  about 122 tokens/s
+k=8:  about 113 tokens/s
+k=9:  about 103 tokens/s
+k=10: about 98 tokens/s
+k=11: about 91 tokens/s
+k=12: about 85 tokens/s
+```
+
+This is stronger than the earlier coarse grid because the peak is now resolved
+at integer granularity. Under `B=36`, the best observed lookahead is:
+
+```text
+k* ~= 5
+```
+
+### Interpretation
+
+This supports the Block 1 A3 claim on real LLM execution:
+
+- small `k` underuses the speculative lookahead opportunity;
+- increasing `k` initially improves accepted work per decoding step;
+- after the optimum, the fixed budget `B` is spread across too many positions,
+  reducing cache/fan-out effectiveness and lowering end-to-end decode
+  throughput;
+- the resulting service curve is empirically unimodal in `k`.
+
+The first Alpaca run established the same qualitative pattern across multiple
+budgets (`B in {16, 24, 36}`). The GSM8K follow-up fixes `B=36` and gives a
+cleaner fine-grained estimate of the optimum.
+
+### Next Checks
+
+For the GSM8K run, collect or regenerate the supporting mechanism plots:
+
+```text
+avg_suffix_mean.png
+cache_hit_mean.png
+verify_ms_mean.png
+official_throughput_mean.png
+```
+
+These should be used to explain the mechanism behind the primary
+`decode_throughput_mean` curve. The final paper figure should likely use
+`decode_throughput_mean` as the main panel and the mechanism metrics as
+secondary panels.
