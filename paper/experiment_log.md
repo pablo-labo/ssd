@@ -394,3 +394,211 @@ These should be used to explain the mechanism behind the primary
 `decode_throughput_mean` curve. The final paper figure should likely use
 `decode_throughput_mean` as the main panel and the mechanism metrics as
 secondary panels.
+
+## 2026-05-03: Block 1 A2 Math-To-Experiment Alignment
+
+### Source Note
+
+Today we connected the current Block 1 experiments to the detailed A2
+derivation in:
+
+```text
+paper/math/block1a2.md
+```
+
+The A2 note reframes the single-client problem as a service-curve structure
+result for `tilde(mu)^SSD(k)`. The central question is whether increasing
+lookahead `k` is always beneficial. The answer is no: hit-side payoff improves
+with `k`, but miss probability and drafter-budget pressure also increase.
+
+### Mathematical Claims To Support
+
+The A2 note organizes the result around four claims:
+
+```text
+Lemma 1:
+  Miss probability q(k) is increasing on the effective interval I.
+
+Proposition 1:
+  Any interior maximizer k* satisfies the FOC
+  marginal hit benefit = marginal miss cost.
+
+Theorem 1:
+  Under the finite-T_V regularity assumption q''(k) >= 0,
+  tilde(mu)^SSD(k) is single-peaked on I.
+
+Theorem 2:
+  In the large-T_V unsaturated regime,
+  k* = r log(T_V) / log(1/alpha) + O(log log T_V).
+```
+
+The key FOC from the note is:
+
+```text
+alpha^k* log(1/alpha) p_hit(k*) = q'(k*) (1 - alpha^k*)
+```
+
+Interpretation:
+
+```text
+left side:  marginal hit benefit from extending lookahead;
+right side: marginal miss cost from increasing miss probability.
+```
+
+This gives the clean story for experiments: a peak in throughput should occur
+where the hit-side gain from larger `k` is overtaken by the cache-miss/fan-out
+cost.
+
+### What The Current Experiments Validate
+
+The current real-LLM evidence validates the qualitative A2 mechanism:
+
+```text
+Alpaca coarse run:
+  B in {16, 24, 36}
+  k in {2, 4, 6, 8, 10}
+  decode_throughput_mean peaks internally, around k = 4 to 6.
+
+GSM8K fine run:
+  B = 36
+  k in {2, 3, ..., 12}
+  alpha-prior = 0.735, r-prior = 0.6
+  decode_throughput_mean peaks clearly around k = 5.
+```
+
+This directly supports Theorem 1's empirical content:
+
+```text
+tilde(mu)^SSD(k) is not monotone increasing in realistic SSD execution;
+it is empirically single-peaked over the tested interval.
+```
+
+The GSM8K fine-grained result is especially useful because the integer peak is
+resolved:
+
+```text
+k=2:  about 94 tokens/s
+k=3:  about 110 tokens/s
+k=4:  about 129 tokens/s
+k=5:  about 140 tokens/s  <-- best observed point
+k=6:  about 130 tokens/s
+k>6:  steadily decreases through k=12
+```
+
+### How The Existing Metrics Map To A2 Variables
+
+The experiments do not directly observe all A2 symbols, but several metrics map
+onto the theory:
+
+```text
+alpha:
+  estimated from accepted suffix statistics.
+  The previous Alpaca run suggested an empirical center around alpha ~= 0.735.
+
+r:
+  estimated from cache-hit decay across fan-out budgets.
+  The previous Alpaca run suggested a rough center around r ~= 0.6.
+
+q(k):
+  represented empirically by 1 - cache_hit_mean.
+
+tilde(mu)^SSD(k):
+  represented primarily by decode_throughput_mean.
+
+k*:
+  measured as the k that maximizes decode_throughput_mean for a fixed
+  configuration.
+```
+
+The most important mechanism plots to keep with the A2 story are:
+
+```text
+decode_throughput_mean.png  primary service curve
+avg_suffix_mean.png         hit-side payoff proxy
+cache_hit_mean.png          miss/cache proxy
+verify_ms_mean.png          verifier-side timing proxy
+```
+
+### What Is Not Yet Fully Validated
+
+The experiments so far are strong evidence for conditional single-peakedness,
+but they do not yet validate every A2 corollary.
+
+Still pending:
+
+```text
+q''(k) >= 0:
+  The A2 note uses this as a finite-T_V assumption. We need numerical checks on
+  the measured or model-implied q(k) curves.
+
+k* monotonicity in alpha:
+  The A2 note predicts partial k*/partial alpha > 0. We need dataset/workload
+  or synthetic-profile sweeps that produce different measured alpha values.
+
+k* monotonicity in T_V:
+  The A2 note predicts partial k*/partial T_V > 0. Current B sweeps are useful,
+  but we still need a cleaner bridge from B to the A2 budget formula
+  B(k) = (T_V - a k)/(b k).
+
+k* monotonicity in r:
+  The A2 note predicts partial k*/partial r > 0. We have only a rough estimate
+  of r from the existing B sweep.
+
+k* monotonicity in b:
+  The A2 note predicts partial k*/partial b < 0 through second-order terms. We
+  need draft/tree timing calibration before claiming this empirically.
+```
+
+### Next Experiment Plan For A2
+
+The next phase should explicitly target the A2 corollaries rather than only
+showing another single-peaked curve.
+
+Recommended runs:
+
+```text
+1. Workload/alpha sweep
+   Run the fine k grid on GSM8K, Alpaca, HumanEval, and C4.
+   Estimate alpha for each workload and test whether higher-alpha workloads
+   have larger observed k*.
+
+2. Budget/T_V proxy sweep
+   Repeat fine k grids for B in {24, 36, 48} under the calibrated
+   alpha/r priors. Check whether k* shifts upward as budget increases.
+
+3. Convexity check for q(k)
+   For each fixed configuration, plot q(k)=1-cache_hit_mean and finite
+   differences of q'(k). This directly tests the A2.1 assumption q''(k)>=0.
+
+4. Timing calibration
+   Extract draft/tree timing terms to estimate a and b. This is required before
+   validating the predicted negative dependence of k* on b.
+```
+
+### Current Research Status
+
+Current status relative to A2:
+
+```text
+Lemma-level direction q'(k)>0:
+  qualitatively consistent with observed cache-hit degradation as k grows.
+
+FOC mechanism:
+  supported qualitatively by the observed transition from increasing to
+  decreasing throughput.
+
+Conditional single-peakedness:
+  strongly supported by real-LLM Alpaca and GSM8K runs.
+
+Large-T_V scaling and monotonicity corollaries:
+  not yet experimentally validated; these define the next targeted sweeps.
+```
+
+For slides, the clean statement is:
+
+```text
+We now have real-system evidence for the single-peaked service curve predicted
+by Block 1 A2. The remaining A2 work is to validate the parameter movement of
+k*, especially with respect to alpha, effective budget T_V/B, and drafter cost
+b.
+```
