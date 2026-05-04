@@ -1,0 +1,4 @@
+scenario,total_cases,valid_cases,valid_rate,positive_gap_cases,positive_gap_rate,reversal_cases,reversal_rate,strong_reversal_cases,strong_reversal_rate,avg_reversal_gap_pct,top_reversal_gap_pct,gate_region_pass,gate_gap_pass,gate_pass
+default,1600,1600,1.0,982,0.61375,92,0.0575,0,0.0,0.056197850579667745,0.10984059691512055,False,False,False
+wide_b,4900,3976,0.8114285714285714,2883,0.7251006036217303,392,0.09859154929577464,156,0.039235412474849095,0.13488947348797636,0.35525757157016286,False,False,False
+semi_calibrated,625,625,1.0,502,0.8032,66,0.1056,20,0.032,0.10503007692193139,0.19290411372920477,False,False,False

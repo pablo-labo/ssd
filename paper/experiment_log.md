@@ -602,3 +602,173 @@ by Block 1 A2. The remaining A2 work is to validate the parameter movement of
 k*, especially with respect to alpha, effective budget T_V/B, and drafter cost
 b.
 ```
+
+## 2026-05-05: Block 3 Allocation-Reversal Scan
+
+### Motivation
+
+After Block 1 established a single-client SSD service curve with an internal
+optimum, we moved to the roadmap's Block 3 question:
+
+```text
+Does there exist a non-trivial parameter region R where GoodSpeed's allocation
+order differs from the SSD-aware optimum?
+```
+
+The implemented scanner is:
+
+```bash
+python -m sim.experiments.block3_reversal_scan
+```
+
+The scanner compares:
+
+```text
+GoodSpeed baseline:
+  maximize log(mu_GS_1(k1)) + log(mu_GS_2(k2))
+  where mu_GS_i(k) = (1 - alpha_i^(k+1)) / (1 - alpha_i)
+
+SSD-aware oracle:
+  maximize log(mu_SSD_1(k1,k2)) + log(mu_SSD_2(k2,k1))
+  where B_i = floor_+((T_V(k1+k2) - a_i k_i) / (b_i k_i))
+```
+
+Both optimizations use integer grid search under:
+
+```text
+k1 >= 1, k2 >= 1, k1 + k2 <= C.
+```
+
+The utility comparison is not made in two different models. GoodSpeed first
+chooses `(k1^GS, k2^GS)` using its own monotone service curve, then that
+allocation is evaluated under the same SSD model as the SSD-aware oracle. The
+reported gap is:
+
+```text
+U_SSD(k^SSD) - U_SSD(k^GS).
+```
+
+### Outputs
+
+Default scan:
+
+```text
+sim/experiments/results/block3_reversal/
+```
+
+Wider `b`-heterogeneity scan:
+
+```text
+sim/experiments/results/block3_reversal_wide_b/
+```
+
+Semi-calibrated scan centered on the Block 1 rough estimates
+`alpha ~= 0.735` and `r ~= 0.6`:
+
+```text
+sim/experiments/results/block3_reversal_semi_calibrated/
+```
+
+Cross-scenario summary:
+
+```text
+sim/experiments/results/block3_summary/gate3_summary.csv
+sim/experiments/results/block3_summary/b_ratio_summary.csv
+sim/experiments/results/block3_summary/b_ratio_reversal_rate.png
+sim/experiments/results/block3_summary/b_ratio_reversal_gap.png
+```
+
+### Gate 3 Summary
+
+```text
+scenario          valid cases   reversal rate   avg reversal gap   top gap
+default           1600/1600      5.8%            5.6%               11.0%
+wide_b            3976/4900      9.9%            13.5%              35.5%
+semi_calibrated    625/625      10.6%            10.5%              19.3%
+```
+
+Under the roadmap's strict global Gate 3 criterion:
+
+```text
+R share >= 20%
+average gap inside R >= 15%
+```
+
+none of the three full-scenario scans passes both conditions. However, the
+wide-b and semi-calibrated scans show that the reversal mechanism is not a
+single isolated toy point.
+
+### b-Ratio Scaling Result
+
+The strongest signal is drafter-cost heterogeneity. Grouping by:
+
+```text
+b_ratio = max(b1,b2) / min(b1,b2)
+```
+
+shows a clear increase in reversal frequency and gap as the ratio grows.
+
+Representative wide-b groups:
+
+```text
+b_ratio = 20:
+  reversal rate = 26.5%
+  avg reversal gap = 14.4%
+
+b_ratio = 40:
+  reversal rate = 32.3%
+  avg reversal gap = 20.4%
+```
+
+Representative semi-calibrated groups:
+
+```text
+b_ratio = 10:
+  reversal rate = 24.0%
+  avg reversal gap = 10.9%
+
+b_ratio = 20:
+  reversal rate = 24.0%
+  avg reversal gap = 17.5%
+```
+
+This supports the qualitative Block 3 mechanism:
+
+```text
+GoodSpeed orders clients mainly by acceptance behavior.
+SSD-aware allocation also sees drafter cost.
+When acceptance ordering conflicts with drafter-cost ordering, allocation
+reversal becomes likely.
+```
+
+### Interpretation
+
+The safe current claim is:
+
+```text
+The closed-form SSD model produces non-empty allocation-reversal regions.
+Reversal is concentrated in high drafter-cost heterogeneity regimes, and the
+gap can exceed 15% locally.
+```
+
+The unsafe claim is:
+
+```text
+Reversal is already proven to be large under realistic production parameters.
+```
+
+That still requires timing calibration for realistic `a`, `b`, and
+`T_V(sum k)` ranges.
+
+### Next Checks
+
+1. Calibrate `b` from draft/tree timing measurements rather than synthetic
+   ratios.
+2. Replace the linear verifier-time proxy
+   `T_V = t_v_base + t_v_slope * sum k` with a measured or paper-derived
+   curve.
+3. Re-run the semi-calibrated scan using a joint `(alpha,r)` distribution
+   rather than a small independent grid around `alpha ~= 0.735, r ~= 0.6`.
+4. If calibrated `b_ratio` rarely exceeds the high-heterogeneity regime, frame
+   reversal as a conditional structural result and make the externality term
+   the main signature.
