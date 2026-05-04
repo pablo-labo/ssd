@@ -12,6 +12,7 @@ DEFAULT_SCENARIOS = [
     ("default", DEFAULT_RESULTS_ROOT / "block3_reversal" / "summary.csv"),
     ("wide_b", DEFAULT_RESULTS_ROOT / "block3_reversal_wide_b" / "summary.csv"),
     ("semi_calibrated", DEFAULT_RESULTS_ROOT / "block3_reversal_semi_calibrated" / "summary.csv"),
+    ("alpaca_calibrated", DEFAULT_RESULTS_ROOT / "block3_reversal_alpaca_calibrated" / "summary.csv"),
 ]
 DEFAULT_OUT_DIR = DEFAULT_RESULTS_ROOT / "block3_summary"
 

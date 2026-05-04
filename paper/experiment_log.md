@@ -772,3 +772,530 @@ That still requires timing calibration for realistic `a`, `b`, and
 4. If calibrated `b_ratio` rarely exceeds the high-heterogeneity regime, frame
    reversal as a conditional structural result and make the externality term
    the main signature.
+
+## 2026-05-05: Block 3 Real-LLM Timing Run Setup
+
+### Goal
+
+The next real-LLM run is meant to calibrate the quantities that synthetic
+Block 3 currently treats as free parameters:
+
+```text
+draft timing:   draft_ms ~= k*a + k*b*B
+verifier time:  verify_ms ~= T0 + tau*k
+```
+
+The run wrapper added for this purpose is:
+
+```bash
+bash scripts/run_block3_timing_grid.sh
+```
+
+It wraps the existing geometric fan-out benchmark, enables draft-side profiling
+with:
+
+```text
+SSD_PROFILE_DRAFT=1
+```
+
+and then parses the log into:
+
+```text
+draft_profile_summary.csv
+```
+
+using:
+
+```bash
+python bench/summarize_draft_profile_log.py <run.log> --csv <out>/draft_profile_summary.csv
+```
+
+### Dataset Issue Found
+
+The first attempted Alpaca run still printed garbage-looking prompts. This was
+not a model issue. It happened because the remote shell had:
+
+```text
+DATASET_FLAG=--alpaca
+SSD_DATASET_DIR=
+```
+
+With `SSD_DATASET_DIR` empty or pointing at a missing directory, the benchmark
+could not find:
+
+```text
+alpaca/alpaca_data_10000.jsonl
+```
+
+and silently fell back to random token prompts. Those random token ids decode
+as mixed code-like / garbage text, which polluted the displayed prompts.
+
+### Alpaca Data Fix
+
+On the AutoDL machine, HuggingFace direct access initially timed out. The
+dataset was downloaded successfully by setting the mirror endpoint:
+
+```bash
+export PYTHONPATH=/root/autodl-tmp/ssd:$PYTHONPATH
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_DATASETS_CACHE=/root/autodl-tmp/hf_datasets_cache
+
+python - <<'PY'
+from scripts.get_data_from_hf import download_alpaca_data
+print(download_alpaca_data(10000))
+PY
+```
+
+This produced:
+
+```text
+/root/autodl-tmp/hf_datasets_cache/processed_datasets/alpaca/alpaca_data_10000.jsonl
+```
+
+The critical environment variable for the benchmark is the parent
+`processed_datasets` directory:
+
+```bash
+export SSD_DATASET_DIR=/root/autodl-tmp/hf_datasets_cache/processed_datasets
+```
+
+Before launching an overnight run, always check:
+
+```bash
+echo "DATASET_FLAG=$DATASET_FLAG"
+echo "SSD_DATASET_DIR=$SSD_DATASET_DIR"
+ls -lh "$SSD_DATASET_DIR/alpaca/alpaca_data_10000.jsonl"
+head -n 2 "$SSD_DATASET_DIR/alpaca/alpaca_data_10000.jsonl"
+```
+
+Expected:
+
+```text
+DATASET_FLAG=--alpaca
+SSD_DATASET_DIR=/root/autodl-tmp/hf_datasets_cache/processed_datasets
+```
+
+and the `head` output should contain natural-language Alpaca instructions, not
+random token gibberish.
+
+### Recommended Full Alpaca Timing Run
+
+Use a fresh output directory so earlier fallback/random-token runs do not mix
+with the corrected Alpaca run:
+
+```bash
+export PYTHONPATH=/root/autodl-tmp/ssd:$PYTHONPATH
+export MPLCONFIGDIR=/tmp/mpl_block3_timing
+export SSD_CUDA_ARCH=8.9
+export CUDA_VISIBLE_DEVICES=0,1
+export ASYNC_GPUS=2
+export SSD_DATASET_DIR=/root/autodl-tmp/hf_datasets_cache/processed_datasets
+export DATASET_FLAG="--alpaca"
+
+export OUT_DIR=/root/autodl-tmp/ssd/bench/results/block3_timing_alpaca_full_v2
+
+K_VALUES="2 3 4 5 6 7 8 9 10 11 12" \
+BUDGETS="16 24 36 48 64" \
+PROMPT_OFFSETS="0 8 16" \
+NUMSEQS=4 \
+OUTPUT_LEN=64 \
+INPUT_LEN=128 \
+MAX_MODEL_LEN=1024 \
+BLOCK_SZ=128 \
+BATCH_SIZE=1 \
+bash scripts/run_block3_timing_grid.sh
+```
+
+Expected scale:
+
+```text
+11 k values * 5 budgets * 3 prompt offsets = 165 runs
+```
+
+If the observed rate is about 30 seconds per run, this should finish in roughly
+1.5--2 hours including summarization and plotting overhead.
+
+### Acceptance Criteria For The Run
+
+The run is usable only if:
+
+```text
+dataset flag: --alpaca
+```
+
+appears in the wrapper banner and the log contains no fallback warning:
+
+```text
+falling back to random tokens
+```
+
+After completion, inspect:
+
+```bash
+head -n 5 /root/autodl-tmp/ssd/bench/results/block3_timing_alpaca_full_v2/shape_summary.csv
+head -n 5 /root/autodl-tmp/ssd/bench/results/block3_timing_alpaca_full_v2/draft_profile_summary.csv
+```
+
+The follow-up analysis should use:
+
+```text
+shape_summary.csv          for cache hit, accepted suffix, verify_ms, throughput
+draft_profile_summary.csv  for draft/tree timing and b calibration
+run.log                    for raw profiling/debug checks
+```
+
+## 2026-05-05: Block 3 Alpaca Full Timing Result
+
+### Result Directory
+
+The corrected Alpaca run was placed under:
+
+```text
+bench/results/block3_timing_alpaca_full_v2/
+```
+
+Key files:
+
+```text
+shape_summary.csv
+draft_profile_summary.csv
+per_run_summary.csv
+run.log
+figures/
+```
+
+An additional merged analysis table was generated:
+
+```text
+bench/results/block3_timing_alpaca_full_v2/block3_timing_analysis_summary.csv
+```
+
+Each row in that merged table corresponds to one `(B,k)` pair and combines:
+
+```text
+throughput / cache / verify metrics from shape_summary.csv
+draft-side timing metrics from draft_profile_summary.csv
+```
+
+### Data Quality Check
+
+The run is usable:
+
+```text
+shape rows: 55 = 5 budgets * 11 k values
+draft rows: 165 = 5 budgets * 11 k values * 3 prompt offsets
+dataset: alpaca
+runs per shape point: 3
+fallback count in run.log: 0
+```
+
+Prompt samples in `run.log` are real Alpaca prompts, for example:
+
+```text
+Give three tips for staying healthy.
+Render a 3D model of a house
+Describe the function of a computer motherboard
+```
+
+This confirms that the earlier random-token / garbage-prompt issue was fixed.
+
+### Service-Curve Result
+
+The Alpaca full run preserves the Block 1 single-peaked pattern. Best observed
+lookahead by budget:
+
+```text
+B=16: best decode k=4, best official k=4
+B=24: best decode k=5, best official k=4
+B=36: best decode k=5, best official k=5
+B=48: best decode k=4, best official k=4
+B=64: best decode k=4, best official k=4
+```
+
+Cache hit rate decreases with `k`, while larger `B` raises cache hit rate:
+
+```text
+B=16: cache hit k=2 -> k=12: 0.824 -> 0.433
+B=24: cache hit k=2 -> k=12: 0.853 -> 0.575
+B=36: cache hit k=2 -> k=12: 0.879 -> 0.667
+B=48: cache hit k=2 -> k=12: 0.896 -> 0.711
+B=64: cache hit k=2 -> k=12: 0.908 -> 0.736
+```
+
+This is consistent with the proposed mechanism:
+
+```text
+larger k improves hit-side payoff,
+but larger k also spreads fan-out/cache budget over more positions,
+so throughput peaks internally.
+```
+
+### Timing Calibration
+
+Do not use `draft_total_ms_mean` directly for Block 3 `b` calibration. It mixes
+service/build/populate/communication overhead and gives an unphysical negative
+`b` in the linear fit.
+
+The cleaner draft timing targets are:
+
+```text
+draft_detail_total_ms_mean
+draft_decode_tree_ms_mean
+```
+
+Fitting:
+
+```text
+draft_ms ~= c + a*k + b*k*B
+```
+
+gives:
+
+```text
+draft_detail_total_ms_mean:
+  c  = -0.0035 ms
+  a  =  2.6285 ms per draft depth step
+  b  =  0.007689 ms per depth-step fanout unit
+  R2 =  0.9966
+  RMSE = 0.541 ms
+
+draft_decode_tree_ms_mean:
+  c  =  1.1488 ms
+  a  =  2.9567 ms per draft depth step
+  b  =  0.008456 ms per depth-step fanout unit
+  R2 =  0.9970
+  RMSE = 0.570 ms
+```
+
+For first calibrated Block 3 runs, use:
+
+```text
+a ~= 2.6--3.0 ms
+b ~= 0.0077--0.0085 ms
+```
+
+Verifier timing is nearly linear in `k` and only weakly affected by `B`:
+
+```text
+verify_ms_mean ~= 19.613 + 0.0944*k - 0.00239*B
+R2 = 0.8726
+RMSE = 0.115 ms
+```
+
+For the first calibrated scheduler scan, the simplest proxy is:
+
+```text
+T_V(k) ~= 19.6 + 0.094*k ms
+```
+
+### Interpretation For Block 3
+
+This run provides a real-system anchor for the absolute scale of `a`, `b`, and
+`T_V`.
+
+However, it uses a single target/draft pair:
+
+```text
+Qwen3-8B target, Qwen3-0.6B draft
+```
+
+so it calibrates the absolute timing scale but not the multi-client
+heterogeneity distribution of `b`. To decide whether allocation reversal is a
+common realistic regime, we still need either:
+
+```text
+multiple draft model sizes / hardware settings,
+or multiple measured workload profiles that induce materially different draft
+cost coefficients.
+```
+
+The immediate next step is to feed the fitted `(a,b,T_V)` into the Block 3 scan
+as a calibrated single-profile baseline, then run sensitivity around measured
+`b` to determine how much heterogeneity is required for reversal under real
+timing scale.
+
+## 2026-05-05: Block 3 Alpaca-Calibrated Reversal Scan
+
+### Reproducible Entry Point
+
+The real Alpaca timing fit was connected back into the Block 3 reversal scanner
+through:
+
+```bash
+CONDA_ENV=crypto_ml \
+MPLCONFIGDIR=/private/tmp/mpl_block3_calibrated \
+scripts/run_block3_alpaca_calibrated_scan.sh
+```
+
+The script runs:
+
+```text
+sim.experiments.block3_reversal_scan
+sim.experiments.block3_summarize_results
+```
+
+and writes:
+
+```text
+sim/experiments/results/block3_reversal_alpaca_calibrated/
+sim/experiments/results/block3_summary/
+```
+
+### Calibration Used
+
+The scan uses the fitted timing model from the corrected Alpaca run:
+
+```text
+draft_detail_total_ms ~= -0.003456 + 2.628523*k + 0.007689*k*B
+verify_ms             ~= 19.613020 + 0.094370*k
+```
+
+For the two-client scanner this becomes:
+
+```text
+a = 2.628523 ms
+T_V(k1+k2) = 19.613020 + 0.094370*(k1+k2) ms
+```
+
+and `b` is swept around the measured value:
+
+```text
+b values =
+0.0038445 0.005126 0.007689 0.0115335 0.015378
+0.023067 0.030756 0.061512 0.07689
+```
+
+This is a sensitivity scan around the measured single-profile value. The
+single Qwen3-8B/Qwen3-0.6B run does not by itself identify a population
+distribution over `b`; it only anchors the real timing scale.
+
+### Result
+
+The calibrated scan evaluated:
+
+```text
+8 alpha values * 8 alpha values * 9 b values * 9 b values = 5184 cases
+```
+
+with:
+
+```text
+valid cases:                    2754 / 5184 = 53.1%
+positive SSD-over-GS gap cases: 2749 / 2754 = 99.8%
+reversal cases:                   56 / 2754 = 2.0%
+strong reversal cases:            54 / 2754 = 2.0%
+average reversal gap:                      37.4%
+top reversal gap:                          48.5%
+```
+
+The summary table now includes:
+
+```text
+scenario            valid cases   reversal rate   avg reversal gap   gate pass
+default             1600/1600      5.8%            5.6%               no
+wide_b              3976/4900      9.9%            13.5%              no
+semi_calibrated      625/625       10.6%           10.5%              no
+alpaca_calibrated   2754/5184      2.0%            37.4%              no
+```
+
+Representative top calibrated reversal cases:
+
+```text
+alpha=(0.65,0.8),  b=(0.0038445,0.023067):
+  GoodSpeed k=(5,7), SSD k=(5,4), gap=48.5%
+
+alpha=(0.735,0.8), b=(0.0038445,0.023067):
+  GoodSpeed k=(5,7), SSD k=(5,4), gap=48.5%
+
+alpha=(0.8,0.735), b=(0.023067,0.005126):
+  GoodSpeed k=(7,5), SSD k=(4,5), gap=48.5%
+```
+
+### Interpretation
+
+The real-timing scale narrows the reversal region substantially. In this
+calibrated scan, reversal is not a broad default behavior: it appears in about
+2% of valid cases.
+
+However, the surviving reversal cases are not numerical noise. Their utility
+gaps are large, usually above the 15% strong-reversal threshold. The mechanism
+appears when:
+
+```text
+one client has better acceptance/cache structure,
+but the other client has materially cheaper or more expensive draft fanout cost.
+```
+
+GoodSpeed still allocates deeper `k` mainly according to acceptance quality,
+while the SSD-aware objective accounts for how `k` changes the feasible fanout
+budget through the measured drafter timing model.
+
+The right paper framing after this result is:
+
+```text
+allocation reversal survives real timing calibration,
+but as a conditional high-heterogeneity phenomenon rather than a common-case
+claim under one measured draft profile.
+```
+
+The broader empirical claim should now move toward:
+
+```text
+1. positive SSD-over-GoodSpeed utility gap is very common in the calibrated scan;
+2. allocation reversal is a sharp diagnostic case that exposes the structural
+   mismatch in GoodSpeed-style allocation;
+3. the next required measurement is a population of b values from multiple
+   draft sizes, batch/workload regimes, or hardware placements.
+```
+
+### Slide Figures
+
+Slide-friendly figures were generated with:
+
+```bash
+MPLCONFIGDIR=/private/tmp/mpl_block3_slide \
+conda run -n crypto_ml python -m sim.experiments.block3_make_slide_figures
+```
+
+Output directory:
+
+```text
+sim/experiments/results/block3_slide_figures/
+```
+
+The script writes PNG, SVG, and PDF versions of each figure:
+
+```text
+calibrated_scenario_summary
+alpaca_calibrated_b_ratio
+alpaca_calibrated_reversal_case
+```
+
+Figure usage:
+
+```text
+calibrated_scenario_summary:
+  compare reversal region size against average reversal gap across default,
+  wide-b, semi-calibrated, and Alpaca-calibrated scans.
+
+alpaca_calibrated_b_ratio:
+  show that calibrated reversal requires draft-cost heterogeneity; the x-axis
+  is max(b1,b2)/min(b1,b2), the left y-axis is reversal rate, and the right
+  y-axis is average gap among reversal cases.
+
+alpaca_calibrated_reversal_case:
+  show a representative concrete case where GoodSpeed allocates k=(5,7), while
+  the SSD-aware objective allocates k=(5,4), producing a 48.5% geomean utility
+  gain under the calibrated timing model.
+```
+
+Suggested slide text:
+
+```text
+Real timing calibration narrows the reversal region, but does not eliminate it.
+Under Alpaca-calibrated Qwen3 timing, allocation reversal appears in 2.0% of
+valid cases; however, surviving reversal cases have large utility gaps
+(avg. 37.4%, max 48.5%). This suggests reversal is a conditional
+high-heterogeneity phenomenon, while the broader and more stable signal is the
+SSD-aware utility advantage over GoodSpeed allocation.
+```
