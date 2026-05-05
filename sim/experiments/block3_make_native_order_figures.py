@@ -144,6 +144,107 @@ def _make_capacity_chart(paths: list[tuple[str, Path]], out_dir: Path) -> None:
     plt.close(fig)
 
 
+def _mechanism_rates(rows: list[dict[str, str]]) -> tuple[float, float, float]:
+    total = 0
+    blindness = 0
+    overcommit = 0
+    strict = 0
+    for row in rows:
+        orders = _orders(row)
+        if orders is None:
+            continue
+        total += 1
+        gs_order, ssd_order = orders
+        if gs_order == 0 and ssd_order != 0:
+            blindness += 1
+        elif gs_order != 0 and ssd_order == 0:
+            overcommit += 1
+        elif gs_order != 0 and ssd_order != 0 and gs_order != ssd_order:
+            strict += 1
+    if not total:
+        return 0.0, 0.0, 0.0
+    return blindness / total * 100, overcommit / total * 100, strict / total * 100
+
+
+def _make_capacity_mechanism_stack(paths: list[tuple[str, Path]], out_dir: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    labels = [label for label, _ in paths]
+    rates = [_mechanism_rates(_read_rows(path)) for _, path in paths]
+    blindness = [row[0] for row in rates]
+    overcommit = [row[1] for row in rates]
+    strict = [row[2] for row in rates]
+    totals = [sum(row) for row in rates]
+    x = list(range(len(labels)))
+
+    fig, ax = plt.subplots(figsize=(8.8, 5.6))
+    colors = {
+        "blindness": "#4f7f9f",
+        "overcommit": "#7d9b6f",
+        "strict": "#c76b3a",
+    }
+    ax.bar(x, strict, color=colors["strict"], label="Strict reversal")
+    ax.bar(x, blindness, bottom=strict, color=colors["blindness"], label="GS blindness")
+    ax.bar(
+        x,
+        overcommit,
+        bottom=[a + b for a, b in zip(strict, blindness)],
+        color=colors["overcommit"],
+        label="GS overcommit",
+    )
+
+    for xpos, total in zip(x, totals):
+        ax.text(xpos, total + 1.0, f"{total:.1f}%", ha="center", va="bottom", fontsize=9)
+    segments = [
+        (strict, [0.0 for _ in strict], "white"),
+        (blindness, strict, "white"),
+        (overcommit, [a + b for a, b in zip(strict, blindness)], "white"),
+    ]
+    for values, bottoms, color in segments:
+        for xpos, value, bottom in zip(x, values, bottoms):
+            if value < 4.0:
+                continue
+            ax.text(
+                xpos,
+                bottom + value / 2,
+                f"{value:.1f}%",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color=color,
+                fontweight="bold",
+            )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_xlabel("Total depth capacity C")
+    ax.set_ylabel("Share of scheduler-native cases (%)")
+    ax.set_ylim(0, max(totals) + 8)
+    ax.set_title("Scheduler-native Disagreement By Capacity", pad=18)
+    ax.legend(
+        frameon=False,
+        ncols=3,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.20),
+        columnspacing=1.6,
+        handlelength=1.8,
+    )
+    ax.text(
+        0.5,
+        -0.32,
+        "Top label = total mismatch; in-bar labels = component shares.",
+        transform=ax.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10,
+        color="#4b5563",
+    )
+    _style_axes(ax)
+    fig.subplots_adjust(top=0.86, bottom=0.28)
+    _save(fig, out_dir, "native_order_mechanisms_by_capacity")
+    plt.close(fig)
+
+
 def _make_b_ratio_chart(rows: list[dict[str, str]], out_dir: Path) -> None:
     import matplotlib.pyplot as plt
 
@@ -193,6 +294,67 @@ def _make_transition_chart(rows: list[dict[str, str]], out_dir: Path) -> None:
     plt.close(fig)
 
 
+def _make_mechanism_chart(rows: list[dict[str, str]], out_dir: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    total = 0
+    blindness = 0
+    overcommit = 0
+    strict = 0
+    for row in rows:
+        orders = _orders(row)
+        if orders is None:
+            continue
+        total += 1
+        gs_order, ssd_order = orders
+        if gs_order == 0 and ssd_order != 0:
+            blindness += 1
+        elif gs_order != 0 and ssd_order == 0:
+            overcommit += 1
+        elif gs_order != 0 and ssd_order != 0 and gs_order != ssd_order:
+            strict += 1
+
+    labels = [
+        "GS blindness\nGS tie -> SSD non-tie",
+        "GS overcommit\nGS non-tie -> SSD tie",
+        "Strict reversal\nopposite directions",
+    ]
+    counts = [blindness, overcommit, strict]
+    rates = [count / total * 100 for count in counts]
+    colors = ["#4f7f9f", "#7d9b6f", "#c76b3a"]
+
+    fig, ax = plt.subplots(figsize=(8.6, 4.8))
+    x = list(range(len(labels)))
+    bars = ax.bar(x, rates, color=colors, width=0.58)
+    for bar, count, rate in zip(bars, counts, rates):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 1.0,
+            f"{rate:.1f}%\n({count} cases)",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+        )
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("Share of scheduler-native cases at C=12 (%)")
+    ax.set_ylim(0, max(rates) + 8)
+    ax.set_title("Scheduler-native disagreement decomposes into three mechanisms")
+    ax.text(
+        0.5,
+        -0.20,
+        "Do not report the sum as one reversal rate; strict reversal is the strongest subset.",
+        transform=ax.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10,
+        color="#4b5563",
+    )
+    _style_axes(ax)
+    _save(fig, out_dir, "native_order_three_mechanisms")
+    plt.close(fig)
+
+
 def _parse_capacity_paths(values: list[str]) -> list[tuple[str, Path]]:
     paths = []
     for value in values:
@@ -216,8 +378,11 @@ def main() -> None:
     rows = _read_rows(args.summary)
     _make_b_ratio_chart(rows, args.out_dir)
     _make_transition_chart(rows, args.out_dir)
+    _make_mechanism_chart(rows, args.out_dir)
     if args.capacity_summary:
-        _make_capacity_chart(_parse_capacity_paths(args.capacity_summary), args.out_dir)
+        capacity_paths = _parse_capacity_paths(args.capacity_summary)
+        _make_capacity_chart(capacity_paths, args.out_dir)
+        _make_capacity_mechanism_stack(capacity_paths, args.out_dir)
     print(f"wrote={args.out_dir}")
 
 

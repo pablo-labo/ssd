@@ -1526,3 +1526,80 @@ sum of three structural failures. Blindness and overcommit reveal GoodSpeed's
 missing drafter-cost and unimodal-depth dimensions, while strict reversal is the
 signature region where the two schedulers prefer opposite clients.
 ```
+
+### Meeting Figures
+
+The scheduler-native decomposition figures are generated with:
+
+```bash
+MPLCONFIGDIR=/private/tmp/mpl_native_order \
+conda run -n crypto_ml python -m sim.experiments.block3_make_native_order_figures \
+  --capacity-summary 8=/private/tmp/block3_c_sweep_8/summary.csv \
+  --capacity-summary 10=/private/tmp/block3_c_sweep_10/summary.csv \
+  --capacity-summary 12=/private/tmp/block3_c_sweep_12/summary.csv \
+  --capacity-summary 14=/private/tmp/block3_c_sweep_14/summary.csv \
+  --capacity-summary 16=/private/tmp/block3_c_sweep_16/summary.csv \
+  --capacity-summary 20=/private/tmp/block3_c_sweep_20/summary.csv
+```
+
+Output directory:
+
+```text
+sim/experiments/results/block3_native_order_figures/
+```
+
+Primary group-meeting figure:
+
+```text
+native_order_mechanisms_by_capacity.png
+native_order_mechanisms_by_capacity.svg
+native_order_mechanisms_by_capacity.pdf
+```
+
+This is a stacked bar chart over total depth capacity `C`. Each bar decomposes
+the scheduler-native disagreement into:
+
+```text
+Strict reversal   (bottom, orange)
+GS blindness      (middle, blue)
+GS overcommit     (top, green)
+```
+
+Each colored block is labeled with its own percentage. The number above the bar
+is the total mismatch:
+
+```text
+C=8:   blindness 22.3%, overcommit 20.6%, strict  6.8%, total 49.8%
+C=10:  blindness 26.1%, overcommit 16.5%, strict  9.2%, total 51.9%
+C=12:  blindness 22.8%, overcommit 18.0%, strict 10.8%, total 51.6%
+C=14:  blindness 14.5%, overcommit 22.2%, strict 14.1%, total 50.8%
+C=16:  blindness 12.4%, overcommit 23.3%, strict 14.9%, total 50.5%
+C=20:  blindness 10.3%, overcommit 24.3%, strict 15.7%, total 50.2%
+```
+
+Meeting interpretation:
+
+```text
+The total scheduler-native disagreement stays near 50% across capacities, but
+its composition changes. As C becomes more aggressive, GoodSpeed blindness
+declines while overcommit and strict reversal become more prominent. This
+supports the unimodal-SSD story: larger C makes a monotone GoodSpeed allocation
+more likely to overshoot or strictly reverse relative to the SSD-aware optimum.
+```
+
+Secondary figures:
+
+```text
+native_order_three_mechanisms.*
+  Single-C=12 bar chart of the three mechanisms.
+
+native_order_by_capacity.*
+  Line chart of total order mismatch and strict reversal versus C.
+
+native_order_by_b_ratio.*
+  Heterogeneity sweep showing that b-ratio drives both mismatch and strict
+  reversal.
+
+native_order_transition_breakdown.*
+  Detailed transition counts between GS order and SSD-aware order.
+```
