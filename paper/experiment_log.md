@@ -1299,3 +1299,230 @@ valid cases; however, surviving reversal cases have large utility gaps
 high-heterogeneity phenomenon, while the broader and more stable signal is the
 SSD-aware utility advantage over GoodSpeed allocation.
 ```
+
+## 2026-05-05: Scheduler-Native Reversal Decomposition
+
+### Motivation
+
+The first calibrated reversal report used a very conservative validity filter:
+
+```text
+GoodSpeed's allocation must also be executable under the SSD timing model.
+```
+
+This was useful for computing a direct SSD-utility gap:
+
+```text
+U_SSD(k_SSD) - U_SSD(k_GoodSpeed)
+```
+
+but it is not the right definition for measuring whether two schedulers choose
+the same allocation order. GoodSpeed and the SSD-aware scheduler are different
+schedulers; each should be allowed to produce its native allocation.
+
+For scheduler-native order comparison, use:
+
+```text
+GoodSpeed allocation:    k_GS from the GoodSpeed objective
+SSD-aware allocation:    k_SSD from the SSD-aware objective
+```
+
+and compare only the relative order:
+
+```text
+order(k1, k2) in {-1, 0, +1}
+```
+
+where:
+
+```text
+-1: k1 < k2
+ 0: k1 = k2
++1: k1 > k2
+```
+
+### Do Not Collapse All Mismatch Into Reversal
+
+Under this scheduler-native definition, the broad order-mismatch rate at
+`C=12` is:
+
+```text
+order mismatch including ties: 2674 / 5184 = 51.6%
+```
+
+However, this 51.6% number should not be reported as "reversal." It mixes three
+mechanistically different phenomena:
+
+```text
+GS-blindness   (GS tie     -> SSD non-tie): 1180 / 5184 = 22.8%
+GS-overcommit  (GS non-tie -> SSD tie):      934 / 5184 = 18.0%
+Strict reversal:                              560 / 5184 = 10.8%
+```
+
+The tie/non-tie components are real findings, but they are not the same as
+strict allocation reversal.
+
+### Mechanism 1: GoodSpeed Blindness
+
+GoodSpeed allocation is effectively driven by the acceptance parameter:
+
+```text
+GoodSpeed allocation: k_i determined from alpha_i
+```
+
+The SSD-aware scheduler depends on the joint profile:
+
+```text
+SSD-aware allocation: k_i = arg max U_SSD(alpha_i, a_i, b_i, {k_j})
+```
+
+Therefore, when the scan contains points such as:
+
+```text
+alpha1 = alpha2, but b1 != b2
+```
+
+GoodSpeed necessarily ties the two clients, while SSD can break the tie because
+the draft fanout cost `b` changes the feasible fanout budget. This is not a
+definition artifact. It is direct evidence that GoodSpeed is blind to drafter
+cost heterogeneity.
+
+Suggested finding wording:
+
+```text
+Finding 1 (blindness):
+GoodSpeed's alpha-only allocation is structurally blind to drafter-cost
+heterogeneity. When alpha1 = alpha2 but b1 != b2, GoodSpeed gives identical k
+while SSD-aware scheduling differentiates the clients.
+Rate at C=12: 22.8%.
+```
+
+### Mechanism 2: GoodSpeed Overcommit
+
+The reverse tie/non-tie transition also matters:
+
+```text
+GS non-tie -> SSD tie
+```
+
+Here GoodSpeed sees an acceptance difference and assigns a strict order, but the
+SSD-aware objective finds that the two clients should receive the same depth.
+This happens when the SSD utility is near the unimodal peak and marginal depth
+differences are no longer worth the extra draft/fanout cost.
+
+Suggested finding wording:
+
+```text
+Finding 2 (overcommit):
+Where alpha differs but the SSD utility is near-flat around its unimodal peak,
+GoodSpeed over-discriminates between clients while SSD-aware scheduling prefers
+a tie.
+Rate at C=12: 18.0%.
+```
+
+### Mechanism 3: Strict Reversal
+
+Strict reversal should be reserved for the strongest form of disagreement:
+
+```text
+GoodSpeed: k1 < k2, SSD-aware: k1 > k2
+or
+GoodSpeed: k1 > k2, SSD-aware: k1 < k2
+```
+
+Under scheduler-native comparison:
+
+```text
+old comparable-only strict reversal:  56 / 2754 = 2.0%
+new scheduler-native strict reversal: 560 / 5184 = 10.8%
+```
+
+The difference:
+
+```text
+504 additional strict reversal cases
+```
+
+is the real effect of removing the cross-model validity filter. This is the
+number that should be used when discussing the expansion of the reversal
+region.
+
+Strict reversal also increases under more aggressive capacity:
+
+```text
+C=8:   352 / 5184 =  6.8%
+C=10:  478 / 5184 =  9.2%
+C=12:  560 / 5184 = 10.8%
+C=14:  732 / 5184 = 14.1%
+C=16:  770 / 5184 = 14.9%
+C=20:  814 / 5184 = 15.7%
+```
+
+Suggested finding wording:
+
+```text
+Finding 3 (strict reversal):
+When non-local coupling and the SSD unimodal peak shift the optimal depth order
+across the GoodSpeed ordering boundary, the two schedulers strictly disagree on
+direction.
+Rate at C=12: 10.8%; rate at C=20: 15.7%.
+```
+
+### Implication For Gate 3
+
+The roadmap Gate 3 asks whether the reversal region is large enough under
+realistic parameters:
+
+```text
+R in realistic parameter space >= 20%
+average GoodSpeed-vs-SSD utility gap >= 15%
+```
+
+If `R` is defined as strict reversal over the full calibrated grid, then:
+
+```text
+C=12 strict reversal: 10.8%
+C=20 strict reversal: 15.7%
+```
+
+so the full-grid strict reversal frequency is below the 20% gate.
+
+There are two important follow-ups:
+
+```text
+1. Conditional heterogeneity:
+   In high b-ratio subsets, strict reversal is around or above 30%.
+   The reversal region may need to be stated as a heterogeneous-regime result.
+
+2. Utility impact:
+   The scheduler-native strict reversal cases still need utility-gap evaluation.
+   If these cases have average utility loss >= 15%, then strict reversal remains
+   a high-impact finding even if the full-grid frequency is below 20%.
+```
+
+### Revised Framing
+
+Do not report:
+
+```text
+51.6% reversal
+```
+
+Instead report the decomposition:
+
+```text
+At C=12, scheduler-native allocation disagreement decomposes into:
+
+GoodSpeed blindness:   22.8%
+GoodSpeed overcommit:  18.0%
+Strict reversal:       10.8%
+```
+
+Recommended one-sentence summary:
+
+```text
+The 51.6% scheduler-native mismatch is not a single reversal rate; it is the
+sum of three structural failures. Blindness and overcommit reveal GoodSpeed's
+missing drafter-cost and unimodal-depth dimensions, while strict reversal is the
+signature region where the two schedulers prefer opposite clients.
+```
