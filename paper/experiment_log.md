@@ -1116,6 +1116,20 @@ timing scale.
 
 ## 2026-05-05: Block 3 Alpaca-Calibrated Reversal Scan
 
+> **SUPERSEDED METRIC — read this first.** The reversal numbers reported in
+> this entry (e.g. "2.0% reversal", `valid 2754/5184`) use the **old
+> comparable-only definition**, which filters to GoodSpeed allocations that are
+> also executable under the SSD timing model and then reports the `reversal`
+> column over that filtered subset. This definition was **discarded** because it
+> is unfair to the integer-`k` setting: it discards the tie/non-tie
+> disagreements that are themselves real evidence of GoodSpeed's structural
+> blindness. The authoritative metric is the **scheduler-native** mismatch and
+> its three-mechanism decomposition in the next entry
+> ("Scheduler-Native Reversal Decomposition"). Do **not** quote the 2.0% figure
+> or the `valid_rate` filter as a result. The same caveat applies to
+> `block3_summary/gate3_summary.csv`, which is generated under this old
+> comparable-only definition and is retained only for the legacy slide script.
+
 ### Reproducible Entry Point
 
 The real Alpaca timing fit was connected back into the Block 3 reversal scanner
@@ -1177,18 +1191,21 @@ The calibrated scan evaluated:
 8 alpha values * 8 alpha values * 9 b values * 9 b values = 5184 cases
 ```
 
-with:
+with (ALL numbers below use the SUPERSEDED comparable-only definition; the
+average/top gap rows remain meaningful because they describe the utility loss
+on the strict-reversal subset, but the rates and `valid` filter do not):
 
 ```text
-valid cases:                    2754 / 5184 = 53.1%
-positive SSD-over-GS gap cases: 2749 / 2754 = 99.8%
-reversal cases:                   56 / 2754 = 2.0%
-strong reversal cases:            54 / 2754 = 2.0%
-average reversal gap:                      37.4%
-top reversal gap:                          48.5%
+valid cases:                    2754 / 5184 = 53.1%   [superseded filter]
+positive SSD-over-GS gap cases: 2749 / 2754 = 99.8%   [superseded filter]
+reversal cases:                   56 / 2754 = 2.0%    [superseded; use 10.8% scheduler-native]
+strong reversal cases:            54 / 2754 = 2.0%    [superseded]
+average reversal gap:                      37.4%      [utility loss on strict-reversal subset]
+top reversal gap:                          48.5%      [utility loss on strict-reversal subset]
 ```
 
-The summary table now includes:
+The legacy summary table (`gate3_summary.csv`, comparable-only definition,
+SUPERSEDED — retained only for the legacy slide script):
 
 ```text
 scenario            valid cases   reversal rate   avg reversal gap   gate pass
@@ -1289,15 +1306,19 @@ alpaca_calibrated_reversal_case:
   gain under the calibrated timing model.
 ```
 
-Suggested slide text:
+Suggested slide text (UPDATED to scheduler-native definition; the old
+comparable-only phrasing "reversal appears in 2.0% of valid cases" is
+SUPERSEDED — see the Scheduler-Native Reversal Decomposition entry):
 
 ```text
-Real timing calibration narrows the reversal region, but does not eliminate it.
-Under Alpaca-calibrated Qwen3 timing, allocation reversal appears in 2.0% of
-valid cases; however, surviving reversal cases have large utility gaps
-(avg. 37.4%, max 48.5%). This suggests reversal is a conditional
-high-heterogeneity phenomenon, while the broader and more stable signal is the
-SSD-aware utility advantage over GoodSpeed allocation.
+Real timing calibration narrows but does not eliminate the disagreement region.
+Under Alpaca-calibrated Qwen3 timing at C=12, GoodSpeed and SSD-aware scheduling
+produce structurally different allocations in 51.6% of cases, decomposing into
+GoodSpeed blindness (22.8%), GoodSpeed overcommit (18.0%), and strict reversal
+(10.8%). Strict-reversal cases carry large utility gaps (avg. 37.4%, max 48.5%),
+so strict reversal is a conditional high-heterogeneity, high-impact phenomenon,
+while the broad and stable signal is the SSD-aware utility advantage over the
+GoodSpeed allocation.
 ```
 
 ## 2026-05-05: Scheduler-Native Reversal Decomposition
@@ -1603,3 +1624,223 @@ native_order_by_b_ratio.*
 native_order_transition_breakdown.*
   Detailed transition counts between GS order and SSD-aware order.
 ```
+
+## 2026-05-07: Framing Update After Native-Order Figure Review
+
+### Motivation
+
+The native-order capacity figure:
+
+```text
+sim/experiments/results/block3_native_order_figures/native_order_mechanisms_by_capacity.png
+```
+
+shows that strict reversal is only one part of the scheduler-native mismatch.
+If the gate only counts strict reversal, the result looks modest:
+
+```text
+C=12: strict reversal = 10.8%
+C=20: strict reversal = 15.7%
+```
+
+However, this is too narrow as the only criterion for the Block 3 story. SSD
+scheduling changes not only which client receives larger `k`, but also whether
+two clients should be distinguished at all. Therefore tie/non-tie transitions
+should be counted as scheduler-native allocation disagreement, even though they
+should not be called strict reversal.
+
+### Updated Interpretation
+
+Do not use the wording:
+
+```text
+tie/non-tie cases make reversal about 50%
+```
+
+Use the more precise wording:
+
+```text
+Including tie-to-non-tie and non-tie-to-tie transitions, scheduler-native
+allocation disagreement stays around 50% across capacities.
+```
+
+The broad result is not that strict reversal is common. The broad result is
+that GoodSpeed-style scheduling and SSD-aware scheduling frequently disagree on
+the allocation structure once SSD's drafter-cost coupling and unimodal service
+curve are included.
+
+### Three-Level Claim Structure
+
+For paper and slides, report the result in three layers:
+
+```text
+1. Broad mismatch:
+   Scheduler-native allocation disagreement remains near 50% across C.
+
+2. Mechanism decomposition:
+   The mismatch decomposes into GS blindness, GS overcommit, and strict
+   reversal.
+
+3. Signature diagnostic:
+   Strict reversal is the strongest and cleanest failure mode, but it is not the
+   only evidence of structural mismatch.
+```
+
+Recommended wording:
+
+```text
+Strict reversal is deliberately conservative: it captures only cases where the
+two schedulers prefer opposite clients. But SSD-aware scheduling also changes
+whether clients should be differentiated at all. Once tie/non-tie transitions
+are included, scheduler-native allocation disagreement stays around 50% across
+capacities. Thus strict reversal is the sharpest diagnostic subset, while the
+broader result is a large allocation-structure mismatch induced by SSD's
+time-coupled drafter budget and single-peaked service curve.
+```
+
+### Gate 3 Consequence
+
+The original Gate 3 criterion should not be decided solely by full-grid strict
+reversal frequency:
+
+```text
+strict reversal share >= 20%
+```
+
+That criterion is still useful for the strongest signature claim, but it is too
+strict for deciding whether Block 3 is scientifically successful. A better gate
+has two parts:
+
+```text
+Primary structural gate:
+  scheduler-native allocation disagreement is large and stable across C.
+
+Signature reversal gate:
+  strict reversal exists, grows with C and b-heterogeneity, and has meaningful
+  utility impact.
+```
+
+Current status under this framing:
+
+```text
+Primary structural gate:
+  passes. Total scheduler-native disagreement is about 50% across C.
+
+Signature reversal gate:
+  partially passes. Strict reversal is below 20% on the full calibrated grid,
+  but it grows with C, is much larger in high-b-ratio regimes, and still needs
+  scheduler-native utility-gap evaluation.
+```
+
+### Claim Safety
+
+Safe claim:
+
+```text
+GoodSpeed and SSD-aware scheduling disagree on allocation structure in roughly
+half of calibrated scheduler-native cases. Strict reversal is the strongest
+subset of this mismatch; tie/non-tie transitions reveal two additional SSD
+failure modes: drafter-cost blindness and overcommit near the unimodal service
+peak.
+```
+
+Unsafe claim:
+
+```text
+Reversal is 50%.
+```
+
+That would collapse three different mechanisms into one label and invite a
+definition objection. The paper should instead make the decomposition itself a
+result.
+
+## 2026-05-28: G3 Exact-Optimality Check (claim C4)
+
+### Motivation
+
+The scheduler chapter asserts that the capped greedy `CappedSSDScheduler` ("F")
+returns the *exact* optimum of the static sum-throughput allocation
+
+```text
+maximize   sum_i mu^SSD_i(k_i)
+subject to sum_i k_i <= C,   k_i in {0, 1, 2, ...}
+```
+
+This is the separable integer resource-allocation problem; the incremental
+marginal-greedy rule F implements is provably optimal iff every per-client
+service is discrete-concave (non-increasing marginals). Until now this was a
+proposition only. A reviewer can reasonably ask "why is greedy optimal?" G3
+turns it into a measured fact and bounds its precondition.
+
+### Setup
+
+Script:
+
+```text
+sim/experiments/g3_exact_oracle.py
+python -m sim.experiments.g3_exact_oracle
+```
+
+For each grid point (N in {2,3,5,8}, alpha_spread in {0, 0.1, 0.18}, C swept from
+heavily binding up to sum_kstar + 4) the *real* `CappedSSDScheduler` objective is
+compared against two independent exact solvers:
+
+  - a dynamic program (exact for any separable integer allocation, concave or
+    not), and
+  - a MILP oracle via `scipy.optimize.milp` (HiGHS), as an independent
+    cross-check on the DP.
+
+We also (a) audit discrete-concavity of each client's valid mu^SSD prefix, and
+(b) run a synthetic non-concave counterexample to confirm the solvers detect a
+real greedy gap.
+
+Calibration: same Alpaca / Qwen3-8B+0.6B anchors as E3b (r=0.6, a=2.628523,
+b=0.0115335, t_v=20.0), mu^SSD from sim.ssd_math. CPU-only; only numpy / scipy /
+matplotlib needed (no GPU deps).
+
+### Result
+
+```text
+grid points:                 228 (168 in the binding regime C < sum k*)
+greedy == DP optimum:        228 / 228   (worst greedy-minus-DP gap = 0.0)
+greedy allocation == DP arg: 228 / 228   (identical vectors; no reliance on ties)
+DP == MILP:                  228 / 228   (max |DP - MILP| = 3.6e-14, numerical)
+discrete-concave holds:      228 / 228
+```
+
+The greedy-vs-optimum scatter (`results/g3_exact_oracle/g3_greedy_vs_optimum.png`)
+puts every point on the diagonal in both regimes.
+
+Non-concave counterexample (2 clients, C=3; client A marginals 1.00, 0.10, 0.80,
+0.05 -- the 0.80 step exceeds the 0.10 step before it, which mu^SSD never does):
+
+```text
+greedy  = 1.60  alloc [2, 1]
+optimum = 1.90  alloc [3, 0]   (DP and MILP agree)
+=> greedy suboptimal by ~16%; the solvers catch it.
+```
+
+### Claim Safety
+
+Safe claim:
+
+```text
+On the calibrated curve the capped greedy scheduler attains the exact
+sum-throughput optimum at every tested operating point, confirmed by two
+independent solvers (DP and a HiGHS MILP). This holds because mu^SSD is
+discrete-concave throughout its feasible range; where that precondition is
+violated (a synthetic non-concave curve) the same greedy is provably
+suboptimal and the solvers expose the gap.
+```
+
+Unsafe claim:
+
+```text
+The capped greedy is globally optimal.
+```
+
+Optimality is conditional on (i) the sum-throughput objective -- F is a sum-mu
+optimizer, not a proportional-fairness (sum log mu) optimizer -- and (ii)
+discrete concavity of mu^SSD. Both hold in the calibrated regime; neither is
+unconditional. This maps to claim C4 in scheduler_experiment_plan.md and closes
+the C4 row in the handoff claim matrix.

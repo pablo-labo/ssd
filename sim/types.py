@@ -10,6 +10,14 @@ class ClientConfig:
     expansion_policy: str
     initial_backlog: float = 0.0
     empirical_f: int | None = None
+    # Calibrated parameters for the unimodal "ssd" service mode (mu^SSD).
+    # base_acceptance doubles as alpha. r/a/t_v are model/hardware-level and
+    # shared by default; b varies per client (cf. block3 b1/b2 scans). Defaults
+    # are the Alpaca / Qwen3-8B+0.6B calibration (see paper/scheduler_design.md).
+    ssd_r: float = 0.6
+    ssd_a: float = 2.628523
+    ssd_b: float = 0.0038445
+    ssd_t_v: float = 20.0
 
 
 @dataclass

@@ -30,6 +30,59 @@ def linear_service(backlog: float, base_acceptance: float, budget: int) -> float
     return min(backlog, backlog * exposure * budget_penalty)
 
 
+@lru_cache(maxsize=8192)
+def _ssd_mu(budget: int, alpha: float, r: float, a: float, b: float, t_v: float) -> float:
+    from sim.ssd_math import Block1Params, curve_point
+
+    alpha = min(max(alpha, 1e-6), 1.0 - 1e-6)
+    point = curve_point(int(budget), Block1Params(alpha=alpha, r=r, a=a, b=b, t_v=t_v))
+    return float(point.mu) if point.valid else 0.0
+
+
+def ssd_service(
+    backlog: float,
+    base_acceptance: float,
+    budget: int,
+    r: float,
+    a: float,
+    b: float,
+    t_v: float,
+) -> float:
+    """Calibrated unimodal SSD service curve mu^SSD(k) from sim.ssd_math.
+
+    Returns the per-client throughput utility at lookahead k=budget under the
+    Saguaro-style closed form (power-law cache hit, geometric fan-out). Unlike
+    the monotone proxies, this curve is single-peaked in budget, so its marginal
+    turns negative past the interior optimum k* -- which is exactly what makes
+    the peak cap (CappedGreedyMarginalScheduler) bind. Infeasible k (drafter cost
+    exhausts the budget B(k)<=0, or fan-out < 1) return 0.0.
+
+    NOTE: mu^SSD is a throughput rate, not a token count, so this mode is meant
+    for static allocation experiments (large, non-binding backlog), not the
+    backlog-queueing dynamics used by the monotone modes.
+    """
+    if backlog <= 0 or budget <= 0:
+        return 0.0
+    mu = _ssd_mu(int(budget), base_acceptance, r, a, b, t_v)
+    return mu if mu > 0.0 else 0.0
+
+
+def goodspeed_service(backlog: float, base_acceptance: float, budget: int) -> float:
+    """Monotone GoodSpeed service curve.
+
+    mu^GS(k) = (1 - alpha^(k+1)) / (1 - alpha) is the expected accepted suffix
+    length under acceptance rate alpha and lookahead k, capped by the backlog.
+    It is monotone-saturating in budget and has no interior peak, so its
+    marginal gain never turns negative. This is the baseline service assumed by
+    GoodSpeed-style schedulers (see paper/scheduler_design.md, mu^GS = e_hit).
+    """
+    if backlog <= 0 or budget <= 0:
+        return 0.0
+    alpha = min(max(base_acceptance, 0.0), 0.999999)
+    e_hit = (1.0 - alpha ** (budget + 1)) / (1.0 - alpha)
+    return min(backlog, e_hit)
+
+
 def unified_service(
     backlog: float,
     base_acceptance: float,

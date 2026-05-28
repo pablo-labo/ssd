@@ -1,6 +1,6 @@
 import math
 
-from sim.policy import empirical_service, linear_service, unified_service
+from sim.policy import empirical_service, goodspeed_service, linear_service, ssd_service, unified_service
 from sim.types import ClientConfig, ClientSnapshot
 
 
@@ -13,6 +13,10 @@ class SimClient:
         self.frontier_state = config.frontier_quality
         self.expansion_policy = config.expansion_policy
         self.empirical_f = config.empirical_f if config.empirical_f is not None else self._default_empirical_f()
+        self.ssd_r = config.ssd_r
+        self.ssd_a = config.ssd_a
+        self.ssd_b = config.ssd_b
+        self.ssd_t_v = config.ssd_t_v
         self.backlog = float(config.initial_backlog)
         self.freshness_age = 0
         self.total_accepted = 0.0
@@ -37,6 +41,18 @@ class SimClient:
     def _service(self, budget: int, mode: str) -> float:
         if mode == "linear":
             return linear_service(self.backlog, self.base_acceptance, budget)
+        if mode == "goodspeed":
+            return goodspeed_service(self.backlog, self.base_acceptance, budget)
+        if mode == "ssd":
+            return ssd_service(
+                self.backlog,
+                self.base_acceptance,
+                budget,
+                self.ssd_r,
+                self.ssd_a,
+                self.ssd_b,
+                self.ssd_t_v,
+            )
         if mode == "unified":
             return unified_service(
                 self.backlog,
